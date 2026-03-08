@@ -1,0 +1,148 @@
+{
+  "projectType": "saas",
+  "projectName": "AgenticPal",
+  "projectDescription": "An AI personal assistant that uses graph-based reasoning to manage your emails, calendar, and tasks through natural language.",
+  "theme": "palm",
+  "primaryColor": "#5c646c",
+  "lightColor": "#e2833f",
+  "darkColor": "#2891a4",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/graph-reasoning",
+              "concepts/tools-system",
+              "concepts/agent-flow"
+            ]
+          },
+          {
+            "group": "Setup Guide",
+            "pages": [
+              "setup/google-cloud",
+              "setup/oauth",
+              "setup/environment",
+              "setup/redis"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/calendar",
+              "features/email",
+              "features/tasks",
+              "features/natural-language",
+              "features/multi-turn-conversations",
+              "features/confirmations"
+            ]
+          },
+          {
+            "group": "Usage Examples",
+            "pages": [
+              "examples/cli",
+              "examples/api",
+              "examples/streaming"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/endpoints/health",
+              "api/endpoints/chat",
+              "api/endpoints/stream",
+              "api/endpoints/confirm",
+              "api/endpoints/cancel"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "api/tools/calendar",
+              "api/tools/gmail",
+              "api/tools/tasks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Extending",
+            "pages": [
+              "development/custom-tools",
+              "development/graph-nodes",
+              "development/service-integration"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/contributing",
+              "development/testing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Natural language interface for Google Workspace",
+    "LangGraph-powered agent with graph-based reasoning",
+    "Multi-turn conversations with context awareness",
+    "Calendar, Gmail, and Tasks integration",
+    "Confirmation flows for destructive operations",
+    "Real-time streaming with Server-Sent Events",
+    "Session persistence with Redis",
+    "FastAPI backend with rate limiting",
+    "Intelligent date/time parsing"
+  ],
+  "publicApiSurface": [
+    "POST /chat - Synchronous chat endpoint",
+    "POST /chat/message - Store message for streaming",
+    "GET /chat/stream - Server-Sent Events streaming",
+    "POST /chat/confirm - Confirm pending actions",
+    "POST /chat/cancel - Cancel pending actions",
+    "GET /health - Health check",
+    "POST /auth/google - Google OAuth flow",
+    "POST /auth/logout - End session",
+    "add_calendar_event",
+    "delete_calendar_event",
+    "search_calendar_events",
+    "list_calendar_events",
+    "update_calendar_event",
+    "create_task",
+    "list_tasks",
+    "mark_task_complete",
+    "delete_task",
+    "update_task",
+    "read_emails",
+    "get_email_details",
+    "summarize_weekly_emails",
+    "search_emails"
+  ]
+}
