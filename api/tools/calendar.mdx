@@ -1,0 +1,301 @@
+---
+title: 'Calendar Tools'
+description: 'Google Calendar integration tools for managing events and schedules'
+---
+
+The Calendar tools provide comprehensive access to Google Calendar functionality, allowing the agent to create, read, update, delete, and search calendar events.
+
+## add_calendar_event
+
+Create a new calendar event with title, time, and optional attendees.
+
+### Parameters
+
+<ParamField path="title" type="string" required>
+  The title/summary of the event
+</ParamField>
+
+<ParamField path="start_time" type="string" required>
+  Start date/time. Supports flexible formats:
+  - Natural language: `"tomorrow at 2pm"`, `"next Tuesday"`
+  - ISO 8601: `"2026-01-21T14:00:00"`
+</ParamField>
+
+<ParamField path="end_time" type="string">
+  End date/time. If not provided, defaults to 1 hour after start
+</ParamField>
+
+<ParamField path="duration" type="string">
+  Duration of the event (e.g., `"1 hour"`, `"30 minutes"`). Used if `end_time` not provided
+</ParamField>
+
+<ParamField path="description" type="string" default="">
+  Event description or notes
+</ParamField>
+
+<ParamField path="attendees" type="list[string]">
+  List of attendee email addresses
+</ParamField>
+
+<ParamField path="timezone" type="string" default="UTC">
+  Timezone for the event (e.g., `"America/New_York"`, `"UTC"`)
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="event_id" type="string">
+  The unique ID of the created event
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+<ResponseField name="event" type="object">
+  Full event object from Google Calendar API
+</ResponseField>
+
+### Example
+
+```python
+result = await agent.add_calendar_event(
+    title="Team Standup",
+    start_time="tomorrow at 10am",
+    duration="30 minutes",
+    description="Daily team sync",
+    attendees=["alice@company.com", "bob@company.com"],
+    timezone="America/New_York"
+)
+```
+
+---
+
+## delete_calendar_event
+
+Delete a calendar event by its ID. Always confirm with the user before deleting.
+
+### Parameters
+
+<ParamField path="event_id" type="string" required>
+  The unique ID of the event to delete
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error details if operation failed
+</ResponseField>
+
+### Example
+
+```python
+result = await agent.delete_calendar_event(
+    event_id="abc123xyz"
+)
+```
+
+---
+
+## search_calendar_events
+
+Search for calendar events by title keyword. Use this to find specific events before updating or deleting them.
+
+### Parameters
+
+<ParamField path="query" type="string" required>
+  Search term to find in event titles
+</ParamField>
+
+<ParamField path="max_results" type="integer" default={5}>
+  Maximum number of events to return (1-50)
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary message
+</ResponseField>
+
+<ResponseField name="events" type="list[object]">
+  List of matching events with `id`, `title`, `start`, and `end` fields
+</ResponseField>
+
+### Example
+
+```python
+result = await agent.search_calendar_events(
+    query="standup",
+    max_results=10
+)
+
+# Returns:
+# {
+#   "success": True,
+#   "message": "Found 2 event(s) matching 'standup'.",
+#   "events": [
+#     {
+#       "id": "abc123",
+#       "title": "Team Standup",
+#       "start": "2026-03-09T10:00:00",
+#       "end": "2026-03-09T10:30:00"
+#     }
+#   ]
+# }
+```
+
+---
+
+## list_calendar_events
+
+List upcoming calendar events within a time range. Use this to show the user their schedule.
+
+### Parameters
+
+<ParamField path="max_results" type="integer" default={20}>
+  Maximum number of events to return (1-100)
+</ParamField>
+
+<ParamField path="time_min" type="string">
+  Start of time range. Supports:
+  - Natural language: `"today"`, `"next week"`
+  - ISO 8601: `"2026-01-21"`
+</ParamField>
+
+<ParamField path="time_max" type="string">
+  End of time range. Supports:
+  - Natural language: `"next week"`, `"end of month"`
+  - ISO 8601: `"2026-01-28"`
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary message
+</ResponseField>
+
+<ResponseField name="events" type="list[object]">
+  List of events with `id`, `title`, `start`, `end`, and `description` fields
+</ResponseField>
+
+### Example
+
+```python
+# List this week's events
+result = await agent.list_calendar_events(
+    time_min="today",
+    time_max="next Sunday",
+    max_results=20
+)
+```
+
+---
+
+## update_calendar_event
+
+Update an existing calendar event's details. Can modify title, times, or description.
+
+### Parameters
+
+<ParamField path="event_id" type="string" required>
+  The unique ID of the event to update
+</ParamField>
+
+<ParamField path="title" type="string">
+  New event title
+</ParamField>
+
+<ParamField path="start_time" type="string">
+  New start date/time
+</ParamField>
+
+<ParamField path="end_time" type="string">
+  New end date/time
+</ParamField>
+
+<ParamField path="description" type="string">
+  New event description
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+<ResponseField name="event" type="object">
+  Updated event object from Google Calendar API
+</ResponseField>
+
+### Example
+
+```python
+# Reschedule a meeting
+result = await agent.update_calendar_event(
+    event_id="abc123xyz",
+    start_time="tomorrow at 3pm",
+    end_time="tomorrow at 4pm"
+)
+
+# Update event title and description
+result = await agent.update_calendar_event(
+    event_id="abc123xyz",
+    title="Team Retrospective",
+    description="Q1 2026 retrospective meeting"
+)
+```
+
+---
+
+## Implementation Details
+
+All calendar tools interact with the Google Calendar API through the `CalendarService` class located in `services/calendar.py:12-334`. The service:
+
+- Uses the primary calendar (`"primary"`) by default
+- Handles ISO 8601 datetime formatting
+- Supports flexible timezone handling
+- Provides detailed error messages for debugging
+- Returns structured responses with `success`, `message`, and data fields
+
+### Common Response Pattern
+
+All calendar tools return a dictionary with:
+
+```python
+{
+  "success": bool,      # Operation success status
+  "message": str,       # Human-readable message
+  "error": str,         # Error details (if failed)
+  # Additional fields specific to each tool
+}
+```
+
+### Best Practices
+
+1. **Search before delete/update**: Always use `search_calendar_events` to find event IDs before modifying events
+2. **Confirm destructive operations**: Always confirm with the user before calling `delete_calendar_event`
+3. **Handle timezones**: Specify the user's timezone explicitly to avoid confusion
+4. **Natural language dates**: The agent can parse natural language dates - use them for better UX

@@ -1,0 +1,155 @@
+---
+title: 'Chat (Synchronous)'
+description: 'Send a message to the agent and receive a complete response'
+---
+
+## POST /chat
+
+Send a message to the agent and receive a complete response synchronously. This endpoint invokes the LangGraph agent, processes the user's message, and returns the final result.
+
+<Note>
+  For streaming responses with real-time token updates, use the [two-step streaming pattern](/api/endpoints/stream) with `/chat/message` and `/chat/stream`.
+</Note>
+
+### Authentication
+
+Requires a valid session cookie (`session_id`) obtained through the [OAuth flow](/api/authentication).
+
+### Request Body
+
+<ParamField body="user_message" type="string" required>
+  The user's message or query to the agent.
+  
+  - Minimum length: 1 character
+  - Maximum length: 10,000 characters
+  
+  **Examples:**
+  - `"What meetings do I have tomorrow?"`
+  - `"Create a task to review the budget report"`
+</ParamField>
+
+<ParamField body="thread_id" type="string">
+  Optional thread ID for conversation continuity. If not provided, a new thread is created.
+  
+  **Example:** `"thread_abc123"`
+</ParamField>
+
+<ParamField body="conversation_history" type="array">
+  Optional conversation history for additional context. Defaults to an empty array.
+  
+  Each item should be a dictionary with message data.
+</ParamField>
+
+### Request Example
+
+```json
+{
+  "user_message": "What meetings do I have tomorrow?",
+  "thread_id": "thread_abc123",
+  "conversation_history": []
+}
+```
+
+### Response
+
+<ResponseField name="response" type="string" required>
+  The agent's natural language response to the user's query
+</ResponseField>
+
+<ResponseField name="thread_id" type="string" required>
+  Thread ID for conversation continuity. Use this in subsequent requests to maintain context.
+</ResponseField>
+
+<ResponseField name="actions" type="array" required>
+  List of actions executed by the agent during processing.
+  
+  Each action contains:
+  - `id` (string): Unique action identifier
+  - `tool` (string): Name of the tool that was executed
+  - `success` (boolean): Whether the action succeeded
+  - `result` (object, optional): Result data from the tool
+  - `error` (string, optional): Error message if the action failed
+</ResponseField>
+
+<ResponseField name="requires_confirmation" type="boolean" required>
+  Whether the agent is waiting for user confirmation before executing planned actions.
+</ResponseField>
+
+<ResponseField name="confirmation_message" type="string">
+  Message asking for confirmation (only present if `requires_confirmation` is true)
+</ResponseField>
+
+### Response Example
+
+```json
+{
+  "response": "You have 2 meetings tomorrow: Team standup at 9 AM and Budget review at 2 PM.",
+  "thread_id": "thread_abc123",
+  "actions": [
+    {
+      "id": "action_1",
+      "tool": "google_calendar_search",
+      "success": true,
+      "result": {
+        "events": [
+          {"summary": "Team standup", "start": "2026-03-09T09:00:00"},
+          {"summary": "Budget review", "start": "2026-03-09T14:00:00"}
+        ]
+      },
+      "error": null
+    }
+  ],
+  "requires_confirmation": false,
+  "confirmation_message": null
+}
+```
+
+### Confirmation Flow
+
+If `requires_confirmation` is `true`, the agent has planned actions but needs user approval:
+
+```json
+{
+  "response": "I can schedule that meeting for you.",
+  "thread_id": "thread_xyz789",
+  "actions": [],
+  "requires_confirmation": true,
+  "confirmation_message": "Should I create a meeting titled 'Project Review' on March 10th at 3 PM?"
+}
+```
+
+To proceed, use the [confirm](/api/endpoints/confirm) or [cancel](/api/endpoints/cancel) endpoints.
+
+### Status Codes
+
+| Code | Description |
+|------|-------------|
+| 200  | Successful response |
+| 401  | Not authenticated - missing or invalid session cookie |
+| 429  | Rate limit exceeded |
+| 500  | Server error - agent processing failed |
+
+### Error Response
+
+```json
+{
+  "error": "agent_error",
+  "message": "Agent error: <error details>"
+}
+```
+
+### Rate Limiting
+
+Default rate limit: 60 requests per minute per session.
+
+### cURL Example
+
+```bash
+curl -X POST "https://api.example.com/chat" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session_id=your_session_id" \
+  -d '{
+    "user_message": "What meetings do I have tomorrow?",
+    "thread_id": "thread_abc123"
+  }'
+```

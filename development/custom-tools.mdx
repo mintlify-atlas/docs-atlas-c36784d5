@@ -1,0 +1,281 @@
+---
+title: Adding Custom Tools
+description: Learn how to add new tools to extend AgenticPal's capabilities
+---
+
+AgenticPal uses a centralized tool registry system that makes adding new tools straightforward. This guide walks you through the complete process.
+
+## Architecture Overview
+
+The tool system has three layers:
+
+1. **Tool Definitions** (`tool_definitions.py`) - Declares tools with metadata and schemas
+2. **Tool Registry** (`registry.py`) - Wraps service methods and handles execution
+3. **Pydantic Schemas** (`schemas.py`) - Validates parameters and provides type safety
+
+## Adding a New Tool
+
+<Steps>
+  <Step title="Define the Pydantic Schema">
+    Create a parameter schema in `agent/schemas.py`:
+
+    ```python agent/schemas.py
+    from pydantic import BaseModel, Field
+    from typing import Optional
+
+    class SendEmailParams(BaseModel):
+        """Parameters for sending an email."""
+        to: str = Field(..., description="Recipient email address")
+        subject: str = Field(..., description="Email subject line")
+        body: str = Field(..., description="Email body content")
+        cc: Optional[list[str]] = Field(None, description="CC recipients")
+    ```
+
+    The schema provides:
+    - Type validation via Pydantic
+    - Field descriptions for LLM tool calling
+    - Optional parameters with defaults
+  </Step>
+
+  <Step title="Register the Tool Definition">
+    Add your tool to `TOOL_DEFINITIONS` in `agent/tools/tool_definitions.py`:
+
+    ```python agent/tools/tool_definitions.py
+    from .. import schemas
+
+    TOOL_DEFINITIONS: Dict[str, ToolDefinition] = {
+        # ... existing tools ...
+        
+        "send_email": ToolDefinition(
+            name="send_email",
+            summary="Send an email to specified recipients",
+            description="Send an email via Gmail. Use this when the user wants to compose and send a message.",
+            category="gmail",
+            actions=["send", "write"],
+            is_write=True,  # Requires confirmation
+            schema=schemas.SendEmailParams,
+        ),
+    }
+    ```
+
+    **Key fields:**
+    - `name` - Tool identifier (must match method name)
+    - `summary` - Short description (~15 tokens) for discovery
+    - `description` - Full description for LLM tool binding
+    - `category` - Groups tools ("calendar", "gmail", "tasks")
+    - `actions` - Action types ("create", "read", "update", "delete", etc.)
+    - `is_write` - Set `True` for destructive operations
+    - `schema` - The Pydantic model from step 1
+  </Step>
+
+  <Step title="Implement the Tool Method">
+    Add the implementation to `AgentTools` class in `agent/tools/registry.py`:
+
+    ```python agent/tools/registry.py
+    class AgentTools:
+        def __init__(self, calendar_service, gmail_service, tasks_service, ...):
+            self.calendar = calendar_service
+            self.gmail = gmail_service
+            self.tasks = tasks_service
+            # ...
+
+        def send_email(
+            self,
+            to: str,
+            subject: str,
+            body: str,
+            cc: Optional[list[str]] = None,
+        ) -> dict:
+            """Send an email via Gmail."""
+            try:
+                # Call the underlying service
+                result = self.gmail.send_message(
+                    to=to,
+                    subject=subject,
+                    body=body,
+                    cc=cc,
+                )
+                return result
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Failed to send email: {str(e)}",
+                    "error": str(e),
+                }
+    ```
+
+    **Return format:**
+    - Always return a dict with `success: bool`
+    - Include a human-readable `message`
+    - On error, include `error` with details
+    - On success, include relevant data (IDs, objects, etc.)
+  </Step>
+
+  <Step title="Implement the Service Method">
+    If you need to add a new service integration, implement it in `services/`:
+
+    ```python services/gmail.py
+    class GmailService:
+        def send_message(
+            self,
+            to: str,
+            subject: str,
+            body: str,
+            cc: Optional[list[str]] = None,
+        ) -> dict:
+            """Send an email using Gmail API."""
+            try:
+                message = self._create_message(to, subject, body, cc)
+                sent = (
+                    self.service.users()
+                    .messages()
+                    .send(userId="me", body=message)
+                    .execute()
+                )
+                
+                return {
+                    "success": True,
+                    "message_id": sent["id"],
+                    "message": f"Email sent to {to}",
+                }
+            except HttpError as error:
+                return {
+                    "success": False,
+                    "message": f"Failed to send email: {error}",
+                    "error": str(error),
+                }
+    ```
+  </Step>
+
+  <Step title="Add to System Prompt (Optional)">
+    If your tool requires special instructions or examples, update the system prompt in `agent/prompts/`.
+
+    The meta-tools approach means the LLM discovers tools dynamically, but you can add guidance:
+
+    ```python
+    # For important behavioral notes
+    PLAN_ACTIONS_SYSTEM_PROMPT = """
+    ...
+    
+    When sending emails:
+    - Always ask for confirmation before sending
+    - Validate email addresses
+    - Keep subject lines concise
+    """
+    ```
+  </Step>
+
+  <Step title="Add Confirmation Logic (if destructive)">
+    If `is_write=True`, add the tool to the destructive tools list in `agent/graph/nodes/confirm_actions.py`:
+
+    ```python agent/graph/nodes/confirm_actions.py
+    DESTRUCTIVE_TOOLS = {
+        "delete_calendar_event": "calendar event",
+        "delete_task": "task",
+        "send_email": "email",  # Add here
+    }
+    ```
+
+    This ensures users confirm before the action executes.
+  </Step>
+</Steps>
+
+## Tool Definition Reference
+
+Here's a complete example from the codebase:
+
+```python agent/tools/tool_definitions.py
+"delete_task": ToolDefinition(
+    name="delete_task",
+    summary="Delete a task by its ID",
+    description="Delete a task from Google Tasks. Always confirm with the user before deleting.",
+    category="tasks",
+    actions=["delete", "write"],
+    is_write=True,
+    schema=schemas.DeleteTaskParams,
+),
+```
+
+With corresponding schema:
+
+```python agent/schemas.py
+class DeleteTaskParams(BaseModel):
+    """Parameters for deleting a task."""
+    task_id: str = Field(..., description="The unique ID of the task to delete")
+    tasklist: Optional[str] = Field(None, description="Task list ID. If not provided, uses default list")
+```
+
+And implementation:
+
+```python agent/tools/registry.py
+def delete_task(
+    self,
+    task_id: str,
+    tasklist: Optional[str] = None,
+) -> dict:
+    """Delete a task."""
+    return self.tasks.delete_task(task_id=task_id, tasklist=tasklist)
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Clear Descriptions" icon="message-lines">
+    Write descriptions that help the LLM understand **when** to use the tool, not just what it does.
+  </Card>
+  
+  <Card title="Validation" icon="shield-check">
+    Use Pydantic Field constraints (ge, le, min_length, etc.) to validate parameters at the schema level.
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation">
+    Always return structured error responses with helpful messages for the user.
+  </Card>
+  
+  <Card title="Idempotency" icon="rotate">
+    Design tools to be safely retryable when possible.
+  </Card>
+</CardGroup>
+
+## Testing Your Tool
+
+Once implemented, test your tool:
+
+1. **Direct invocation:**
+   ```python
+   from agent.tools.registry import AgentTools
+   
+   tools = AgentTools(calendar_service, gmail_service, tasks_service)
+   result = tools.send_email(
+       to="test@example.com",
+       subject="Test",
+       body="Hello!"
+   )
+   print(result)
+   ```
+
+2. **Through the agent:**
+   ```bash
+   python main.py
+   > Send an email to john@example.com with subject "Meeting Tomorrow"
+   ```
+
+3. **Verify discovery:**
+   ```python
+   from agent.tools.tool_definitions import get_tools_for_categories
+   
+   gmail_tools = get_tools_for_categories(["gmail"])
+   assert "send_email" in gmail_tools
+   ```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Service Integration" icon="puzzle-piece" href="/development/service-integration">
+    Learn how to integrate new external services
+  </Card>
+  
+  <Card title="Graph Nodes" icon="diagram-project" href="/development/graph-nodes">
+    Understand the agent execution graph
+  </Card>
+</CardGroup>

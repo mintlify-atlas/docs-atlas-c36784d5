@@ -1,97 +1,122 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "AgenticPal"
+description: "An AI personal assistant that uses graph-based reasoning to manage your emails, calendar, and tasks through natural language"
 ---
 
-## Setting up
+<div className="hero">
+  <div className="hero-content">
+    <h1 className="hero-title">Your AI-Powered Personal Assistant</h1>
+    <p className="hero-description">
+      AgenticPal brings natural language control to Google Workspace. Manage your calendar, emails, and tasks through conversational AI powered by LangGraph's graph-based reasoning.
+    </p>
+    
+    <div className="hero-actions">
+      <a href="/quickstart" className="btn-primary">Get Started</a>
+      <a href="https://github.com/hasanfaesal/agentic-pal" className="btn-secondary">View on GitHub</a>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+<style jsx>{`
+  .hero {
+    padding: 4rem 0;
+    text-align: center;
+  }
+  .hero-title {
+    font-size: 3rem;
+    font-weight: 700;
+    color: #202124;
+    margin-bottom: 1.5rem;
+    font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .hero-description {
+    font-size: 1.25rem;
+    color: #5f6368;
+    max-width: 800px;
+    margin: 0 auto 2rem;
+    line-height: 1.6;
+  }
+  .hero-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .btn-primary {
+    background: #1a73e8;
+    color: #ffffff;
+    padding: 0.75rem 2rem;
+    border-radius: 4px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+  .btn-primary:hover {
+    background: #1967D2;
+  }
+  .btn-secondary {
+    background: transparent;
+    color: #1a73e8;
+    padding: 0.75rem 2rem;
+    border: 1px solid #1a73e8;
+    border-radius: 4px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+  .btn-secondary:hover {
+    background: #f1f3f4;
+  }
+`}</style>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+## Key Features
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={3}>
+  <Card title="Natural Language Interface" icon="message" href="/features/natural-language">
+    Describe what you want in plain English — no complex commands required
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Graph-Based Reasoning" icon="diagram-project" href="/concepts/graph-reasoning">
+    LangGraph-powered agent that understands context and dependencies
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Multi-Turn Conversations" icon="comments" href="/features/multi-turn-conversations">
+    Ask clarifying questions and maintain context across interactions
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Google Workspace Integration" icon="google" href="/features/calendar">
+    Seamlessly manage Calendar, Gmail, and Tasks in one place
   </Card>
-</Columns>
+  <Card title="Smart Confirmations" icon="shield-check" href="/features/confirmations">
+    Safety prompts before destructive operations
+  </Card>
+  <Card title="Real-Time Streaming" icon="bolt" href="/examples/streaming">
+    Server-Sent Events for live response updates
+  </Card>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Start
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Set up AgenticPal locally with Python 3.12+
+  </Card>
+  <Card title="Google Cloud Setup" icon="cloud" href="/setup/google-cloud">
+    Configure OAuth credentials for Workspace APIs
+  </Card>
+  <Card title="API Documentation" icon="code" href="/api/overview">
+    Integrate with the FastAPI backend
+  </Card>
+  <Card title="Usage Examples" icon="sparkles" href="/examples/cli">
+    See AgenticPal in action with real examples
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## How It Works
 
-## Need inspiration?
+AgenticPal uses a three-layer architecture for intelligent task execution:
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+1. **Agent Layer** — High-level orchestration using LLM for intent parsing and routing
+2. **Tool Registry** — Pydantic-based validation and standardized execution
+3. **Services Layer** — Direct Google API integration for Calendar, Gmail, and Tasks
+
+<Note>
+AgenticPal is currently in active development. While the CLI and API are functional, the web UI is under construction.
+</Note>

@@ -1,0 +1,518 @@
+---
+title: Integrating New Services
+description: Add support for external APIs and services like Outlook, Slack, or custom backends
+---
+
+AgenticPal's architecture makes it easy to integrate new services. This guide shows you how to add support for additional productivity platforms.
+
+## Service Layer Architecture
+
+The service layer sits below the tool registry and handles direct API communication:
+
+```
+Agent Layer (LLM + Tools)
+        ↓
+Tool Registry (Validation + Routing)
+        ↓
+Service Layer (API Integration)  ← You are here
+        ↓
+External APIs (Google, Microsoft, etc.)
+```
+
+## Existing Service Pattern
+
+All services follow a consistent pattern. Let's examine the Gmail service:
+
+```python services/gmail.py
+from googleapiclient.errors import HttpError
+from typing import Optional
+import base64
+
+class GmailService:
+    """Handles Gmail API interactions (read-only)."""
+
+    def __init__(self, service):
+        """Initialize with authenticated Gmail service."""
+        self.service = service
+
+    def list_messages(
+        self,
+        query: str = "",
+        max_results: int = 10,
+    ) -> dict:
+        """
+        List messages from inbox with optional filtering.
+        
+        Returns:
+            Dict with success, message, and data keys
+        """
+        try:
+            results = (
+                self.service.users()
+                .messages()
+                .list(userId="me", q=query, maxResults=max_results)
+                .execute()
+            )
+            
+            messages = results.get("messages", [])
+            
+            return {
+                "success": True,
+                "message": f"Found {len(messages)} message(s).",
+                "messages": messages,
+            }
+        
+        except HttpError as error:
+            return {
+                "success": False,
+                "message": f"Failed to list messages: {error}",
+                "error": str(error),
+            }
+```
+
+**Key patterns:**
+- Constructor accepts authenticated API client
+- Methods return structured dicts with `success`, `message`, and data
+- Comprehensive error handling with user-friendly messages
+- Type hints for all parameters
+
+## Adding a New Service
+
+<Steps>
+  <Step title="Create Service Class">
+    Create a new file in `services/` following the naming convention:
+
+    ```python services/outlook.py
+    from typing import Optional
+    from msal import ConfidentialClientApplication
+    import requests
+
+    class OutlookService:
+        """Handles Microsoft Outlook API interactions."""
+
+        def __init__(self, access_token: str):
+            """Initialize with Microsoft Graph access token."""
+            self.access_token = access_token
+            self.graph_url = "https://graph.microsoft.com/v1.0"
+            self.headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
+
+        def list_events(
+            self,
+            max_results: int = 20,
+            time_min: Optional[str] = None,
+        ) -> dict:
+            """
+            List calendar events from Outlook.
+            
+            Args:
+                max_results: Maximum number of events to return
+                time_min: Start time filter (ISO format)
+                
+            Returns:
+                Dict with success status and events list
+            """
+            try:
+                url = f"{self.graph_url}/me/events"
+                params = {"$top": max_results}
+                
+                if time_min:
+                    params["$filter"] = f"start/dateTime ge '{time_min}'"
+                
+                response = requests.get(
+                    url,
+                    headers=self.headers,
+                    params=params,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                
+                data = response.json()
+                events = data.get("value", [])
+                
+                formatted_events = [
+                    {
+                        "id": event["id"],
+                        "title": event.get("subject", "No title"),
+                        "start": event["start"]["dateTime"],
+                        "end": event["end"]["dateTime"],
+                    }
+                    for event in events
+                ]
+                
+                return {
+                    "success": True,
+                    "message": f"Found {len(formatted_events)} event(s).",
+                    "events": formatted_events,
+                }
+            
+            except requests.exceptions.HTTPError as error:
+                return {
+                    "success": False,
+                    "message": f"Failed to list events: {error}",
+                    "error": str(error),
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Unexpected error: {e}",
+                    "error": str(e),
+                }
+    ```
+  </Step>
+
+  <Step title="Add Authentication">
+    Implement authentication in a separate auth module:
+
+    ```python auth/outlook_auth.py
+    from msal import PublicClientApplication
+    import os
+
+    def get_outlook_token() -> str:
+        """
+        Authenticate with Microsoft and get access token.
+        
+        Uses MSAL for OAuth 2.0 flow.
+        """
+        client_id = os.getenv("MICROSOFT_CLIENT_ID")
+        authority = "https://login.microsoftonline.com/common"
+        
+        app = PublicClientApplication(
+            client_id=client_id,
+            authority=authority,
+        )
+        
+        scopes = [
+            "Calendars.Read",
+            "Calendars.ReadWrite",
+            "Mail.Read",
+        ]
+        
+        # Try to get cached token
+        accounts = app.get_accounts()
+        if accounts:
+            result = app.acquire_token_silent(scopes, account=accounts[0])
+            if result:
+                return result["access_token"]
+        
+        # Interactive flow
+        result = app.acquire_token_interactive(scopes=scopes)
+        
+        if "access_token" in result:
+            return result["access_token"]
+        else:
+            raise Exception(f"Authentication failed: {result.get('error')}")
+    ```
+  </Step>
+
+  <Step title="Register Service in Main">
+    Initialize your service in `main.py` or wherever services are created:
+
+    ```python main.py
+    from services.outlook import OutlookService
+    from auth.outlook_auth import get_outlook_token
+
+    def initialize_services():
+        # Existing Google services
+        calendar_service = CalendarService(...)
+        gmail_service = GmailService(...)
+        tasks_service = TasksService(...)
+        
+        # New Outlook service
+        outlook_token = get_outlook_token()
+        outlook_service = OutlookService(outlook_token)
+        
+        return {
+            "calendar": calendar_service,
+            "gmail": gmail_service,
+            "tasks": tasks_service,
+            "outlook": outlook_service,
+        }
+    ```
+  </Step>
+
+  <Step title="Create Tool Wrappers">
+    Add tools in the registry that call your service:
+
+    ```python agent/tools/registry.py
+    class AgentTools:
+        def __init__(
+            self,
+            calendar_service,
+            gmail_service,
+            tasks_service,
+            outlook_service,  # Add here
+        ):
+            self.calendar = calendar_service
+            self.gmail = gmail_service
+            self.tasks = tasks_service
+            self.outlook = outlook_service
+
+        def list_outlook_events(
+            self,
+            max_results: int = 20,
+            time_min: Optional[str] = None,
+        ) -> dict:
+            """List Outlook calendar events."""
+            return self.outlook.list_events(
+                max_results=max_results,
+                time_min=time_min,
+            )
+    ```
+  </Step>
+
+  <Step title="Define Tool Schema and Definition">
+    Add the Pydantic schema and tool definition:
+
+    ```python agent/schemas.py
+    class ListOutlookEventsParams(BaseModel):
+        """Parameters for listing Outlook events."""
+        max_results: Optional[int] = Field(
+            20,
+            description="Maximum number of events",
+            ge=1,
+            le=100
+        )
+        time_min: Optional[str] = Field(
+            None,
+            description="Start time filter (e.g., 'today', '2026-01-21')"
+        )
+    ```
+
+    ```python agent/tools/tool_definitions.py
+    "list_outlook_events": ToolDefinition(
+        name="list_outlook_events",
+        summary="List upcoming Outlook calendar events",
+        description="List events from Microsoft Outlook calendar. Use this for users with Outlook/Office 365.",
+        category="outlook",
+        actions=["list", "read"],
+        is_write=False,
+        schema=schemas.ListOutlookEventsParams,
+    ),
+    ```
+  </Step>
+</Steps>
+
+## Service Implementation Examples
+
+Here are complete examples from the codebase:
+
+### Calendar Service
+
+```python services/calendar.py
+class CalendarService:
+    """Handles Calendar API interactions."""
+
+    def __init__(self, service):
+        self.service = service
+        self.primary_calendar_id = "primary"
+
+    def add_event(
+        self,
+        title: str,
+        start_time: str,
+        end_time: str,
+        description: str = "",
+        attendees: Optional[list[str]] = None,
+        timezone: str = "UTC",
+    ) -> dict:
+        try:
+            event = {
+                "summary": title,
+                "description": description,
+                "start": {
+                    "dateTime": start_time,
+                    "timeZone": timezone,
+                },
+                "end": {
+                    "dateTime": end_time,
+                    "timeZone": timezone,
+                },
+            }
+
+            if attendees:
+                event["attendees"] = [{"email": email} for email in attendees]
+
+            created_event = (
+                self.service.events()
+                .insert(calendarId=self.primary_calendar_id, body=event)
+                .execute()
+            )
+
+            return {
+                "success": True,
+                "event_id": created_event["id"],
+                "message": f"Event '{title}' created successfully.",
+                "event": created_event,
+            }
+
+        except HttpError as error:
+            return {
+                "success": False,
+                "message": f"Failed to create event: {error}",
+                "error": str(error),
+            }
+```
+
+### Tasks Service
+
+```python services/tasks.py
+class TasksService:
+    """Handles Google Tasks API interactions."""
+
+    def __init__(self, service):
+        self.service = service
+        self._default_list_id = None
+
+    def _get_default_list_id(self) -> Optional[str]:
+        """Get the default task list ID (cached)."""
+        if self._default_list_id:
+            return self._default_list_id
+        
+        try:
+            lists = self.service.tasklists().list().execute()
+            items = lists.get("items", [])
+            if items:
+                self._default_list_id = items[0]["id"]
+                return self._default_list_id
+        except Exception:
+            pass
+        return None
+
+    def create_task(
+        self,
+        title: str,
+        tasklist: Optional[str] = None,
+        due: Optional[str] = None,
+        notes: str = "",
+    ) -> dict:
+        try:
+            if not tasklist:
+                tasklist = self._get_default_list_id()
+            
+            task_body = {
+                "title": title,
+                "status": "needsAction",
+            }
+            
+            if due:
+                task_body["due"] = due
+            if notes:
+                task_body["notes"] = notes
+            
+            created_task = (
+                self.service.tasks()
+                .insert(tasklist=tasklist, body=task_body)
+                .execute()
+            )
+            
+            return {
+                "success": True,
+                "task_id": created_task["id"],
+                "message": f"Task '{title}' created successfully.",
+                "task": created_task,
+            }
+        
+        except HttpError as error:
+            return {
+                "success": False,
+                "message": f"Failed to create task: {error}",
+                "error": str(error),
+            }
+```
+
+## Service Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Consistent Returns" icon="arrow-turn-down-left">
+    Always return dicts with `success`, `message`, and data keys. Never raise exceptions to the caller.
+  </Card>
+  
+  <Card title="Timeout Handling" icon="clock">
+    Set reasonable timeouts on API calls (typically 10-30 seconds) to prevent hangs.
+  </Card>
+  
+  <Card title="Rate Limiting" icon="gauge-high">
+    Implement retry logic with exponential backoff for rate-limited APIs.
+  </Card>
+  
+  <Card title="Credential Management" icon="key">
+    Store credentials securely and refresh tokens before expiry. Never hardcode secrets.
+  </Card>
+</CardGroup>
+
+## Error Handling Pattern
+
+All service methods follow this error handling structure:
+
+```python
+def service_method(self, ...) -> dict:
+    """Service method with comprehensive error handling."""
+    try:
+        # Main logic
+        result = self._call_external_api(...)
+        
+        return {
+            "success": True,
+            "message": "Operation completed successfully.",
+            "data": result,
+        }
+    
+    except SpecificAPIError as error:
+        # Handle known API errors
+        if error.status_code == 404:
+            return {
+                "success": False,
+                "message": "Resource not found.",
+                "error": str(error),
+            }
+        return {
+            "success": False,
+            "message": f"API error: {error}",
+            "error": str(error),
+        }
+    
+    except Exception as e:
+        # Catch-all for unexpected errors
+        return {
+            "success": False,
+            "message": f"Unexpected error: {e}",
+            "error": str(e),
+        }
+```
+
+## Testing Services
+
+Test services independently from the agent:
+
+```python
+from services.outlook import OutlookService
+from auth.outlook_auth import get_outlook_token
+
+def test_outlook_service():
+    token = get_outlook_token()
+    service = OutlookService(token)
+    
+    result = service.list_events(max_results=5)
+    
+    assert result["success"] == True
+    assert "events" in result
+    print(f"Found {len(result['events'])} events")
+
+if __name__ == "__main__":
+    test_outlook_service()
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Custom Tools" icon="wrench" href="/development/custom-tools">
+    Create tools that use your new service
+  </Card>
+  
+  <Card title="Testing" icon="flask" href="/development/testing">
+    Learn how to write comprehensive tests
+  </Card>
+</CardGroup>

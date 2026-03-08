@@ -1,0 +1,598 @@
+---
+title: "Agent Flow"
+description: "Complete examples of agent execution flows from user input to final response"
+---
+
+This page walks through complete examples of how AgenticPal processes different types of requests, showing the agent state, tool invocations, and decision flow.
+
+## Simple Read Operation
+
+Let's trace a simple calendar listing request.
+
+### User Request
+
+```
+"What's on my calendar tomorrow?"
+```
+
+### Execution Flow
+
+<Steps>
+  <Step title="Initialize State">
+    ```python
+    state = {
+        "user_message": "What's on my calendar tomorrow?",
+        "conversation_history": [],
+        "actions": [],
+        "results": {},
+        "session_id": "550e8400-e29b-41d4-a716-446655440000",
+        # ... other fields
+    }
+    ```
+  </Step>
+  
+  <Step title="plan_actions Node">
+    LLM uses meta-tools to find and invoke the right tool:
+    
+    **Step 1: Discover tools**
+    ```python
+    discover_tools(categories=["calendar"], actions=["list"])
+    # Returns: [{"name": "list_calendar_events", "summary": "List upcoming calendar events..."}]
+    ```
+    
+    **Step 2: Invoke tool** (skips get_tool_schema for simple tools)
+    ```python
+    invoke_tool(
+        "list_calendar_events",
+        {"time_min": "tomorrow", "time_max": "tomorrow 23:59"}
+    )
+    # Returns: {
+    #   "success": True,
+    #   "data": {
+    #     "events": [
+    #       {"id": "e1", "title": "Team Standup", "start": "2026-03-09T10:00:00Z"},
+    #       {"id": "e2", "title": "Client Call", "start": "2026-03-09T14:00:00Z"}
+    #     ]
+    #   }
+    # }
+    ```
+    
+    **Updated State**:
+    ```python
+    {
+        "actions": [
+            {"id": "a1", "tool": "list_calendar_events", "args": {...}, "depends_on": []}
+        ],
+        "results": {
+            "a1": {"success": True, "data": {"events": [...]}}
+        },
+        "requires_confirmation": False,
+        "discovered_tools": ["list_calendar_events"]
+    }
+    ```
+  </Step>
+  
+  <Step title="route_execution Node">
+    Checks execution mode:
+    - No confirmation needed (read operation)
+    - No dependencies between actions
+    
+    Sets `execution_mode = "parallel"`
+  </Step>
+  
+  <Step title="execute_parallel Node">
+    All tools already executed in `plan_actions`, so this node:
+    - Checks `results` dict
+    - Finds all actions already have results
+    - Skips execution and passes state through
+  </Step>
+  
+  <Step title="synthesize_response Node">
+    LLM creates natural language response from results:
+    
+    ```python
+    final_response = "You have 2 events tomorrow:\n\n" \
+                    "1. Team Standup at 10:00 AM\n" \
+                    "2. Client Call at 2:00 PM"
+    ```
+  </Step>
+</Steps>
+
+### Final Output
+
+```
+You have 2 events tomorrow:
+
+1. Team Standup at 10:00 AM
+2. Client Call at 2:00 PM
+```
+
+**Total tokens used**: ~800 (vs ~6500 if loading all tool schemas upfront)
+
+---
+
+## Write Operation with Confirmation
+
+Let's trace a delete operation that requires user confirmation.
+
+### User Request
+
+```
+"Delete my meeting with John"
+```
+
+### Execution Flow
+
+<Steps>
+  <Step title="plan_actions Node">
+    LLM realizes it needs to:
+    1. Search for the event
+    2. Delete it (requires confirmation)
+    
+    **Step 1: Discover search tools**
+    ```python
+    discover_tools(categories=["calendar"], actions=["search"])
+    # Returns: [{"name": "search_calendar_events", ...}]
+    ```
+    
+    **Step 2: Search for John's meeting**
+    ```python
+    invoke_tool("search_calendar_events", {"query": "John"})
+    # Returns: {
+    #   "success": True,
+    #   "data": {
+    #     "events": [{"id": "e123", "title": "Meeting with John", "start": "2026-03-11T14:00:00Z"}]
+    #   }
+    # }
+    ```
+    
+    **Step 3: Discover delete tools**
+    ```python
+    discover_tools(categories=["calendar"], actions=["delete"])
+    # Returns: [{"name": "delete_calendar_event", "is_write": True, ...}]
+    ```
+    
+    **Step 4: Mark delete for confirmation**
+    ```python
+    # LLM calls invoke_tool but meta_tools detects it's destructive
+    invoke_tool("delete_calendar_event", {"event_id": "e123"})
+    # Meta-tools return:
+    {
+        "status": "pending_confirmation",
+        "tool_name": "delete_calendar_event",
+        "parameters": {"event_id": "e123"},
+        "message": "This action requires user confirmation before execution"
+    }
+    ```
+    
+    **Updated State**:
+    ```python
+    {
+        "actions": [
+            {"id": "a1", "tool": "search_calendar_events", "args": {...}},
+            {"id": "a2", "tool": "delete_calendar_event", "args": {"event_id": "e123"}, "pending_confirmation": True}
+        ],
+        "results": {"a1": {"success": True, ...}},
+        "requires_confirmation": True
+    }
+    ```
+  </Step>
+  
+  <Step title="route_execution Node">
+    Checks `requires_confirmation = True`
+    
+    Sets `execution_mode = "confirm"`
+  </Step>
+  
+  <Step title="confirm_actions Node (Interrupt)">
+    Graph pauses and creates confirmation message:
+    
+    ```python
+    confirmation_message = "This will delete the event 'Meeting with John' scheduled for Tuesday, March 11 at 2:00 PM. Confirm? (yes/no)"
+    ```
+    
+    Graph returns to user and waits for input.
+  </Step>
+  
+  <Step title="User Confirms">
+    User: `"yes"`
+    
+    Graph resumes from checkpoint with:
+    ```python
+    {"user_confirmation": "yes"}
+    ```
+  </Step>
+  
+  <Step title="execute_parallel Node">
+    Now executes the pending delete:
+    
+    ```python
+    result = tool_executor("delete_calendar_event", {"event_id": "e123"})
+    # Returns: {"success": True, "message": "Event deleted"}
+    ```
+    
+    **Updated State**:
+    ```python
+    {
+        "results": {
+            "a1": {"success": True, ...},
+            "a2": {"success": True, "message": "Event deleted"}
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="synthesize_response Node">
+    ```python
+    final_response = "I've deleted your meeting with John that was scheduled for Tuesday, March 11 at 2:00 PM."
+    ```
+  </Step>
+</Steps>
+
+### Final Output
+
+```
+[First message - paused at confirm_actions]
+This will delete the event 'Meeting with John' scheduled for Tuesday, March 11 at 2:00 PM. Confirm? (yes/no)
+
+[After user confirms]
+I've deleted your meeting with John that was scheduled for Tuesday, March 11 at 2:00 PM.
+```
+
+---
+
+## Sequential Execution with Dependencies
+
+Let's trace a complex request that requires sequential tool execution.
+
+### User Request
+
+```
+"Find my oldest task and mark it complete"
+```
+
+### Execution Flow
+
+<Steps>
+  <Step title="plan_actions Node">
+    LLM plans a two-step workflow:
+    1. List tasks
+    2. Mark the oldest one complete (depends on step 1)
+    
+    **Step 1: List tasks**
+    ```python
+    invoke_tool("list_tasks", {})
+    # Returns: {
+    #   "success": True,
+    #   "data": {
+    #     "tasks": [
+    #       {"id": "t1", "title": "Buy groceries", "created": "2026-03-01"},
+    #       {"id": "t2", "title": "Pay bills", "created": "2026-03-05"},
+    #       {"id": "t3", "title": "Call dentist", "created": "2026-02-28"}
+    #     ]
+    #   }
+    # }
+    ```
+    
+    **Step 2: Plan to mark oldest (t3) complete**
+    
+    LLM identifies t3 as oldest and creates a dependent action:
+    
+    **Updated State**:
+    ```python
+    {
+        "actions": [
+            {"id": "a1", "tool": "list_tasks", "args": {}, "depends_on": []},
+            {"id": "a2", "tool": "mark_task_complete", "args": {"task_id": "t3"}, "depends_on": ["a1"]}
+        ],
+        "results": {
+            "a1": {"success": True, "data": {...}}
+        },
+        "requires_confirmation": False
+    }
+    ```
+  </Step>
+  
+  <Step title="route_execution Node">
+    Checks for dependencies:
+    - Action `a2` has `depends_on: ["a1"]`
+    
+    Sets `execution_mode = "sequential"`
+  </Step>
+  
+  <Step title="execute_sequential Node">
+    Executes actions in dependency order:
+    
+    **Topological sort**:
+    ```python
+    sorted_actions = [a1, a2]  # a1 has no deps, a2 depends on a1
+    ```
+    
+    **Execute a1**: Already has result from plan_actions, skip
+    
+    **Execute a2**:
+    ```python
+    # Inject dependencies if needed
+    resolved_action = _inject_dependencies(a2, results)
+    
+    # Execute
+    result = tool_executor("mark_task_complete", {"task_id": "t3"})
+    # Returns: {"success": True, "message": "Task marked complete"}
+    ```
+    
+    **Updated State**:
+    ```python
+    {
+        "results": {
+            "a1": {...},
+            "a2": {"success": True, "message": "Task marked complete"}
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="synthesize_response Node">
+    ```python
+    final_response = "I've marked your oldest task 'Call dentist' as complete."
+    ```
+  </Step>
+</Steps>
+
+### Final Output
+
+```
+I've marked your oldest task 'Call dentist' as complete.
+```
+
+---
+
+## Multi-Turn Conversation
+
+Let's trace a conversation that requires clarification.
+
+### Turn 1: User Request
+
+```
+"Schedule a meeting with Sarah"
+```
+
+#### Execution Flow
+
+<Steps>
+  <Step title="plan_actions Node">
+    LLM realizes it needs more information:
+    - When should the meeting be?
+    - How long?
+    
+    Decides to ask for clarification instead of invoking tools.
+    
+    **Updated State**:
+    ```python
+    {
+        "actions": [],  # No tools invoked yet
+        "results": {},
+        "requires_confirmation": False
+    }
+    ```
+  </Step>
+  
+  <Step title="synthesize_response Node">
+    ```python
+    final_response = "I'd be happy to schedule a meeting with Sarah. When would you like to meet, and for how long?"
+    ```
+  </Step>
+</Steps>
+
+#### Output
+
+```
+I'd be happy to schedule a meeting with Sarah. When would you like to meet, and for how long?
+```
+
+### Turn 2: User Clarifies
+
+```
+"Tomorrow at 3pm for 1 hour"
+```
+
+#### Execution Flow
+
+<Steps>
+  <Step title="plan_actions Node (with context)">
+    LLM now has full context from conversation history:
+    - Previous message: "Schedule a meeting with Sarah"
+    - Current message: "Tomorrow at 3pm for 1 hour"
+    
+    Combines information and invokes tool:
+    
+    ```python
+    invoke_tool(
+        "add_calendar_event",
+        {
+            "title": "Meeting with Sarah",
+            "start_time": "tomorrow 3pm",
+            "duration": "1 hour"
+        }
+    )
+    # Returns: {"success": True, "data": {"event_id": "e456", ...}}
+    ```
+    
+    **Updated State**:
+    ```python
+    {
+        "conversation_history": [
+            {"role": "user", "content": "Schedule a meeting with Sarah"},
+            {"role": "assistant", "content": "I'd be happy to..."},
+            {"role": "user", "content": "Tomorrow at 3pm for 1 hour"}
+        ],
+        "actions": [{"id": "a1", "tool": "add_calendar_event", ...}],
+        "results": {"a1": {"success": True, ...}}
+    }
+    ```
+  </Step>
+  
+  <Step title="synthesize_response Node">
+    ```python
+    final_response = "I've scheduled a meeting with Sarah for tomorrow at 3:00 PM for 1 hour."
+    ```
+  </Step>
+</Steps>
+
+#### Output
+
+```
+I've scheduled a meeting with Sarah for tomorrow at 3:00 PM for 1 hour.
+```
+
+---
+
+## Parallel Execution
+
+Let's trace a request that can execute multiple tools in parallel.
+
+### User Request
+
+```
+"Show me my calendar for tomorrow and my unread emails"
+```
+
+### Execution Flow
+
+<Steps>
+  <Step title="plan_actions Node">
+    LLM identifies two independent operations:
+    1. List calendar events
+    2. List unread emails
+    
+    **Step 1: Discover and invoke calendar tool**
+    ```python
+    invoke_tool("list_calendar_events", {"time_min": "tomorrow", "time_max": "tomorrow 23:59"})
+    ```
+    
+    **Step 2: Discover and invoke email tool**
+    ```python
+    invoke_tool("list_unread_emails", {})
+    ```
+    
+    **Updated State**:
+    ```python
+    {
+        "actions": [
+            {"id": "a1", "tool": "list_calendar_events", "args": {...}, "depends_on": []},
+            {"id": "a2", "tool": "list_unread_emails", "args": {}, "depends_on": []}
+        ],
+        "results": {
+            "a1": {"success": True, "data": {"events": [...]}},
+            "a2": {"success": True, "data": {"messages": [...]}}
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="route_execution Node">
+    Checks for dependencies:
+    - Both actions have `depends_on: []`
+    - No confirmation needed
+    
+    Sets `execution_mode = "parallel"`
+  </Step>
+  
+  <Step title="execute_parallel Node">
+    All tools already executed in `plan_actions`
+    
+    Skips execution and passes state through
+  </Step>
+  
+  <Step title="synthesize_response Node">
+    ```python
+    final_response = """Here's your schedule and emails:
+    
+    **Tomorrow's Calendar:**
+    1. Team Standup at 10:00 AM
+    2. Client Call at 2:00 PM
+    
+    **Unread Emails (5):**
+    1. From: boss@company.com - "Project Update"
+    2. From: hr@company.com - "Benefits Reminder"
+    ...
+    """
+    ```
+  </Step>
+</Steps>
+
+### Final Output
+
+```
+Here's your schedule and emails:
+
+**Tomorrow's Calendar:**
+1. Team Standup at 10:00 AM
+2. Client Call at 2:00 PM
+
+**Unread Emails (5):**
+1. From: boss@company.com - "Project Update"
+2. From: hr@company.com - "Benefits Reminder"
+...
+```
+
+**Performance**: Both tools executed in parallel (if they weren't already executed in plan_actions), reducing total execution time.
+
+---
+
+## State Persistence
+
+All of these examples use LangGraph's checkpointer to maintain state:
+
+```python
+from langgraph.checkpoint.memory import MemorySaver
+
+checkpointer = MemorySaver()
+compiled_graph = graph.compile(checkpointer=checkpointer)
+```
+
+This enables:
+
+<CardGroup cols={2}>
+  <Card title="Multi-Turn Conversations" icon="comments">
+    Conversation history persists across messages
+  </Card>
+  
+  <Card title="Human-in-the-Loop" icon="user">
+    Graph can pause for confirmations and resume
+  </Card>
+  
+  <Card title="Error Recovery" icon="rotate-left">
+    State can be rolled back if needed
+  </Card>
+  
+  <Card title="Session Management" icon="id-card">
+    Each session has its own isolated state
+  </Card>
+</CardGroup>
+
+## Key Patterns
+
+These examples demonstrate several key patterns:
+
+1. **Meta-tools reduce tokens**: Only load tool schemas when needed
+2. **Confirmation flow**: Destructive operations pause for approval
+3. **Sequential execution**: Handle dependencies between actions
+4. **Parallel execution**: Speed up independent operations
+5. **Multi-turn conversations**: Use conversation history for context
+6. **Natural language parsing**: Convert user input to structured tool calls
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Architecture" icon="layer-group" href="/concepts/architecture">
+    Understand the three-layer architecture
+  </Card>
+  
+  <Card title="Graph Reasoning" icon="diagram-project" href="/concepts/graph-reasoning">
+    Deep dive into LangGraph state machine
+  </Card>
+  
+  <Card title="Tools System" icon="wrench" href="/concepts/tools-system">
+    Learn about tool registration and meta-tools
+  </Card>
+</CardGroup>

@@ -1,80 +1,277 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get AgenticPal up and running in 5 minutes
 ---
 
-## Get started in three steps
+Get AgenticPal running locally in just a few minutes. This guide will walk you through installation, Google Cloud setup, and your first conversation with the agent.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, make sure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+- **Python 3.12 or higher** installed
+- A **Google Cloud Platform account** (free tier works)
+- **5-10 minutes** for initial setup
+
+## Quick Setup
+
+<Steps>
+  <Step title="Install AgenticPal">
+    Clone the repository and install dependencies:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    <CodeGroup>
+    ```bash uv (recommended)
+    git clone https://github.com/hasanfaesal/agentic-pal.git
+    cd agentic-pal
+    uv sync
+    ```
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    ```bash pip
+    git clone https://github.com/hasanfaesal/agentic-pal.git
+    cd agentic-pal
+    pip install -e .
+    ```
+    </CodeGroup>
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <Note>
+      `uv` is 10-100x faster than pip. [Install it](https://github.com/astral-sh/uv) with: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+    </Note>
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Set up Google Cloud credentials">
+    AgenticPal needs OAuth credentials to access your Google Workspace:
+    
+    1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+    2. Create a new project or select an existing one
+    3. Enable these APIs:
+       - Google Calendar API
+       - Gmail API
+       - Google Tasks API
+    4. Configure OAuth consent screen (add your email as test user)
+    5. Create OAuth Client ID (Application type: **Desktop app**)
+    6. Download the JSON file and save it as `credentials.json` in the project root
+    
+    <Warning>
+      Keep your `credentials.json` file secure and never commit it to version control. It's already in `.gitignore`.
+    </Warning>
+    
+    For detailed instructions, see [Google Cloud Setup](/setup/google-cloud).
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Configure environment variables">
+    Create a `.env` file in the project root:
+    
+    ```bash .env
+    # LLM API Key (required)
+    DASHSCOPE_API_KEY=your_dashscope_api_key_here
+    
+    # Optional: Use OpenAI or Anthropic instead
+    # OPENAI_API_KEY=your_openai_key
+    # ANTHROPIC_API_KEY=your_anthropic_key
+    ```
+    
+    <Info>
+      AgenticPal uses Alibaba's Qwen model by default. Get a free API key at [DashScope](https://dashscope.aliyun.com/).
+    </Info>
+  </Step>
 
-### Step 3: Go live
+  <Step title="Run AgenticPal">
+    Start the interactive CLI:
+    
+    ```bash
+    python main.py
+    ```
+    
+    On first run, a browser window will open for OAuth authentication. Grant the requested permissions, and AgenticPal will save the token for future use.
+    
+    You'll see:
+    ```
+    AgenticPal - Your AI Personal Assistant
+    Type 'exit', 'quit', or 'q' to exit
+    Mode: Legacy
+    --------------------------------------------------
+    
+    You: _
+    ```
+  </Step>
+</Steps>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Try Your First Commands
 
-## Next steps
+Once AgenticPal is running, try these natural language commands:
 
-Now that you have your docs running, explore these key features:
+### Calendar Management
+
+```
+You: Add a meeting with John next Tuesday at 2pm
+
+  Assistant: I've created a calendar event "Meeting with John" 
+             on Tuesday, March 12, 2026 at 2:00 PM.
+```
+
+### Email Operations
+
+```
+You: Show me my unread emails
+
+  Assistant: You have 3 unread emails:
+             1. From: boss@company.com - "Q1 Budget Review"
+             2. From: team@company.com - "Sprint Planning Notes"
+             3. From: newsletter@tech.com - "Weekly Tech Digest"
+```
+
+### Task Management
+
+```
+You: Create a task: Review pull requests, due tomorrow
+
+  Assistant: Created task "Review pull requests" 
+             Due: March 9, 2026 at 11:59 PM
+```
+
+### Multi-turn Conversations
+
+AgenticPal remembers context and asks clarifying questions:
+
+```
+You: Delete the meeting I just created
+
+  Assistant: I found "Meeting with John" scheduled for March 12 at 2 PM.
+             Are you sure you want to delete this event? (yes/no)
+
+You: yes
+
+  Assistant: Event deleted successfully.
+```
+
+## Using the Web API
+
+AgenticPal also provides a REST API with streaming support:
+
+<Steps>
+  <Step title="Install Redis">
+    The web API requires Redis for session management:
+    
+    <CodeGroup>
+    ```bash macOS
+    brew install redis
+    brew services start redis
+    ```
+    
+    ```bash Ubuntu
+    sudo apt-get install redis-server
+    sudo systemctl start redis
+    ```
+    
+    ```bash Docker
+    docker run -d -p 6379:6379 redis:7-alpine
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Configure Redis">
+    Add to your `.env` file:
+    
+    ```bash .env
+    REDIS_HOST=localhost
+    REDIS_PORT=6379
+    SESSION_SECRET=your-secret-key-here
+    ```
+  </Step>
+
+  <Step title="Start the API server">
+    ```bash
+    uvicorn api.main:app --reload
+    ```
+    
+    The API will be available at `http://localhost:8000`.
+    
+    Visit `http://localhost:8000/docs` for interactive API documentation.
+  </Step>
+</Steps>
+
+## CLI Commands
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="help" icon="circle-question">
+    Show available tools and commands
+    ```
+    You: help
+    ```
+  </Card>
+  
+  <Card title="exit / quit / q" icon="right-from-bracket">
+    Exit the interactive CLI
+    ```
+    You: exit
+    ```
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Browser doesn't open for OAuth">
+    If the OAuth flow doesn't start automatically:
+    1. Copy the URL from the terminal
+    2. Paste it into your browser manually
+    3. Complete the authentication
+    4. The CLI will continue once you authorize
+  </Accordion>
+
+  <Accordion title="Invalid credentials error">
+    If you see "invalid_grant" or credential errors:
+    1. Delete `token.json` in the project root
+    2. Run `python main.py` again
+    3. Re-authenticate in the browser
+    
+    This usually happens if you:
+    - Changed OAuth scopes
+    - Removed your email as a test user
+    - The token expired (shouldn't happen often)
+  </Accordion>
+
+  <Accordion title="Python version error">
+    If you see syntax errors about `match` or type unions:
+    ```bash
+    python --version  # Must be 3.12+
+    ```
+    
+    Update Python or use [pyenv](https://github.com/pyenv/pyenv) to manage versions:
+    ```bash
+    pyenv install 3.12
+    pyenv local 3.12
+    ```
+  </Accordion>
+
+  <Accordion title="LLM API errors">
+    If the agent isn't responding:
+    1. Check your API key in `.env`
+    2. Verify you have API credits/quota
+    3. Try a different model in `main.py`:
+    ```python
+    model_name="gpt-4"  # If using OpenAI
+    model_name="claude-3-opus-20240229"  # If using Anthropic
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="lightbulb" href="/concepts/architecture">
+    Learn how AgenticPal's architecture works
+  </Card>
+  
+  <Card title="Features" icon="stars" href="/features/natural-language">
+    Explore all capabilities in depth
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Integrate AgenticPal into your applications
+  </Card>
+  
+  <Card title="Examples" icon="book-open" href="/examples/cli">
+    See more usage examples
+  </Card>
+</CardGroup>

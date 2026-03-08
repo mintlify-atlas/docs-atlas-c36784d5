@@ -1,0 +1,86 @@
+---
+title: 'Health Check'
+description: 'Check API health status and Redis connectivity'
+---
+
+## GET /health
+
+Returns the health status of the API, including version information and Redis connection status.
+
+### Authentication
+
+No authentication required.
+
+### Response
+
+<ResponseField name="status" type="string" required>
+  Service status. Values: `"healthy"` or `"degraded"`
+</ResponseField>
+
+<ResponseField name="version" type="string" required>
+  API version number
+</ResponseField>
+
+<ResponseField name="redis_connected" type="boolean" required>
+  Whether Redis is connected and responsive
+</ResponseField>
+
+<ResponseField name="timestamp" type="string" required>
+  ISO 8601 timestamp of the health check
+</ResponseField>
+
+### Response Example
+
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0",
+  "redis_connected": true,
+  "timestamp": "2026-03-08T10:30:00.000000"
+}
+```
+
+### Status Codes
+
+| Code | Description |
+|------|-------------|
+| 200  | Health check successful |
+
+### cURL Example
+
+```bash
+curl -X GET "https://api.example.com/health"
+```
+
+---
+
+## GET /
+
+API root endpoint that returns basic API information and navigation links.
+
+### Authentication
+
+No authentication required.
+
+### Response Example
+
+```json
+{
+  "name": "Agentic-PAL API",
+  "version": "1.0.0",
+  "docs": "/docs",
+  "health": "/health"
+}
+```
+
+### Status Codes
+
+| Code | Description |
+|------|-------------|
+| 200  | Successful response |
+
+### cURL Example
+
+```bash
+curl -X GET "https://api.example.com/"
+```

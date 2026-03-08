@@ -1,0 +1,509 @@
+---
+title: Authentication
+description: Google OAuth2 authentication and session management
+---
+
+## Overview
+
+AgenticPal uses Google OAuth2 for authentication, allowing the agent to access user's Google Calendar, Gmail, and Tasks. Sessions are managed with HttpOnly cookies and stored in Redis.
+
+## Authentication Flow
+
+<Steps>
+  <Step title="Initiate OAuth Flow">
+    Client calls `GET /auth/google/login` to get the authorization URL
+  </Step>
+  <Step title="User Authorization">
+    Redirect user to Google's authorization page
+  </Step>
+  <Step title="OAuth Callback">
+    Google redirects back to `GET /auth/google/callback` with authorization code
+  </Step>
+  <Step title="Token Exchange">
+    Backend exchanges code for access/refresh tokens
+  </Step>
+  <Step title="Session Creation">
+    Credentials stored in Redis, session cookie set with HttpOnly flag
+  </Step>
+</Steps>
+
+## OAuth Scopes
+
+The API requests the following Google OAuth scopes:
+
+<ParamField path="calendar" type="scope">
+  `https://www.googleapis.com/auth/calendar` - Full access to Google Calendar
+</ParamField>
+
+<ParamField path="gmail" type="scope">
+  `https://mail.google.com/` - Full access to Gmail
+</ParamField>
+
+<ParamField path="tasks" type="scope">
+  `https://www.googleapis.com/auth/tasks` - Full access to Google Tasks
+</ParamField>
+
+<ParamField path="email" type="scope">
+  `https://www.googleapis.com/auth/userinfo.email` - Access user's email address
+</ParamField>
+
+<ParamField path="openid" type="scope">
+  `openid` - OpenID Connect authentication
+</ParamField>
+
+## Endpoints
+
+### GET /auth/google/login
+
+Initiate the Google OAuth2 login flow.
+
+**Query Parameters:**
+
+<ParamField query="frontend_redirect" type="string">
+  Optional URL to redirect to after successful authentication. Defaults to `FRONTEND_URL` environment variable.
+</ParamField>
+
+**Response:**
+
+<ResponseField name="authorization_url" type="string">
+  The Google OAuth authorization URL to redirect the user to
+</ResponseField>
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:8000/auth/google/login?frontend_redirect=http://localhost:3000/dashboard" \
+  -H "Accept: application/json"
+```
+
+**Example Response:**
+
+```json
+{
+  "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=...&redirect_uri=...&scope=...&state=..."
+}
+```
+
+**Implementation Notes:**
+
+- Sets a `session_id` HttpOnly cookie
+- Generates a CSRF state token stored in Redis (10-minute TTL)
+- Forces consent prompt to ensure refresh token is granted
+- Session cookie expires in 7 days
+
+---
+
+### GET /auth/google/callback
+
+Handle the OAuth callback from Google.
+
+<Warning>
+  This endpoint is called by Google's OAuth service, not directly by clients.
+</Warning>
+
+**Query Parameters:**
+
+<ParamField query="code" type="string" required>
+  Authorization code from Google
+</ParamField>
+
+<ParamField query="state" type="string" required>
+  CSRF protection state token
+</ParamField>
+
+<ParamField query="error" type="string">
+  Error code if authorization was denied
+</ParamField>
+
+**Response:**
+
+- **Success**: `302 Redirect` to frontend URL with session cookie
+- **Error**: `400 Bad Request` or `500 Internal Server Error`
+
+**Error Responses:**
+
+```json
+// Invalid or expired state
+{
+  "error": "invalid_state",
+  "message": "Invalid or expired OAuth state. Please try logging in again."
+}
+```
+
+```json
+// Token exchange failed
+{
+  "error": "token_exchange_error",
+  "message": "Failed to exchange authorization code: [details]"
+}
+```
+
+**Implementation Notes:**
+
+- Validates CSRF state parameter
+- Exchanges authorization code for access and refresh tokens
+- Retrieves user email from Google API
+- Stores credentials in Redis with 7-day TTL
+- Sets HttpOnly session cookie
+- Redirects to frontend URL
+
+---
+
+### GET /auth/session
+
+Get information about the current session.
+
+**Headers:**
+
+<ParamField header="Cookie" type="string" required>
+  Session cookie: `session_id=...`
+</ParamField>
+
+**Response:**
+
+<ResponseField name="session_id" type="string">
+  Unique session identifier
+</ResponseField>
+
+<ResponseField name="user_email" type="string">
+  User's Google email address (if authenticated)
+</ResponseField>
+
+<ResponseField name="authenticated" type="boolean">
+  Whether the session has valid Google credentials
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp of session creation
+</ResponseField>
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:8000/auth/session" \
+  -H "Cookie: session_id=abc123..."
+```
+
+**Example Response:**
+
+```json
+{
+  "session_id": "abc123...",
+  "user_email": "user@example.com",
+  "authenticated": true,
+  "created_at": "2026-03-08T10:30:00.000Z"
+}
+```
+
+**Error Response:**
+
+```json
+// No session cookie
+{
+  "error": "no_session",
+  "message": "No active session"
+}
+```
+
+```json
+// Session expired
+{
+  "error": "session_expired",
+  "message": "Session has expired. Please log in again."
+}
+```
+
+**Implementation Notes:**
+
+- Automatically refreshes expired tokens if refresh token is available
+- Updates `last_accessed` timestamp on each request
+- Extends session TTL on access
+
+---
+
+### POST /auth/refresh
+
+Manually refresh Google OAuth credentials.
+
+**Headers:**
+
+<ParamField header="Cookie" type="string" required>
+  Session cookie: `session_id=...`
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "message": "Credentials refreshed successfully"
+}
+```
+
+**Error Responses:**
+
+```json
+// No refresh token available
+{
+  "error": "no_refresh_token",
+  "message": "No refresh token available. Please log in again."
+}
+```
+
+```json
+// Refresh failed
+{
+  "error": "refresh_failed",
+  "message": "Failed to refresh credentials: [details]"
+}
+```
+
+---
+
+### POST /auth/logout
+
+Log out the current user and clear session.
+
+**Headers:**
+
+<ParamField header="Cookie" type="string">
+  Session cookie: `session_id=...`
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "message": "Successfully logged out"
+}
+```
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:8000/auth/logout" \
+  -H "Cookie: session_id=abc123..."
+```
+
+**Implementation Notes:**
+
+- Deletes session from Redis
+- Deletes stored credentials
+- Clears session cookie
+
+---
+
+## Session Management
+
+### Session Storage
+
+Sessions are stored in Redis (db=0) with the following structure:
+
+**Session Data:**
+```json
+{
+  "session_id": "unique_session_id",
+  "user_email": "user@example.com",
+  "created_at": "2026-03-08T10:30:00.000Z",
+  "last_accessed": "2026-03-08T12:45:00.000Z",
+  "thread_ids": ["thread_1", "thread_2"]
+}
+```
+
+**Credentials stored separately:**
+```json
+{
+  "token": "access_token",
+  "refresh_token": "refresh_token",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "client_id": "...",
+  "client_secret": "...",
+  "scopes": ["https://www.googleapis.com/auth/calendar", ...]
+}
+```
+
+### Session Lifecycle
+
+<Steps>
+  <Step title="Creation">
+    Session created on first `/auth/google/login` call or when cookie is missing
+  </Step>
+  <Step title="Authentication">
+    Credentials stored after successful OAuth callback
+  </Step>
+  <Step title="Usage">
+    Session validated on each API request via dependency injection
+  </Step>
+  <Step title="Expiration">
+    Sessions expire after 7 days of inactivity (configurable)
+  </Step>
+  <Step title="Deletion">
+    Explicitly deleted on logout or automatically by Redis TTL
+  </Step>
+</Steps>
+
+### Cookie Configuration
+
+Session cookies are configured as follows:
+
+<ParamField path="httponly" type="boolean" default={true}>
+  Prevents JavaScript access (XSS protection)
+</ParamField>
+
+<ParamField path="secure" type="boolean">
+  Enabled in production (HTTPS only)
+</ParamField>
+
+<ParamField path="samesite" type="string" default="lax">
+  CSRF protection
+</ParamField>
+
+<ParamField path="domain" type="string">
+  Cookie domain (configurable via `COOKIE_DOMAIN`)
+</ParamField>
+
+<ParamField path="max_age" type="integer" default={604800}>
+  Cookie expiration in seconds (7 days)
+</ParamField>
+
+## Security Considerations
+
+<AccordionGroup>
+  <Accordion title="CSRF Protection">
+    OAuth state parameter provides CSRF protection during login flow. State tokens are:
+    - Randomly generated (cryptographically secure)
+    - Stored in Redis with 10-minute TTL
+    - Validated on callback
+    - Deleted after use
+  </Accordion>
+
+  <Accordion title="XSS Protection">
+    - Session cookies are HttpOnly (not accessible via JavaScript)
+    - Credentials never exposed to frontend
+    - All credential operations happen server-side
+  </Accordion>
+
+  <Accordion title="Token Refresh">
+    - Access tokens automatically refreshed when expired
+    - Refresh tokens stored securely in Redis
+    - Consent prompt forced to ensure refresh token is granted
+  </Accordion>
+
+  <Accordion title="Session Security">
+    - Sessions use cryptographically random IDs (32-byte URL-safe tokens)
+    - Redis persistence with configurable TTL
+    - Automatic expiration after inactivity
+    - Session secret required in production
+  </Accordion>
+</AccordionGroup>
+
+## Configuration
+
+### Required Setup
+
+<Steps>
+  <Step title="Google Cloud Project">
+    Create a project in Google Cloud Console and enable Calendar, Gmail, and Tasks APIs
+  </Step>
+  <Step title="OAuth Credentials">
+    Create OAuth 2.0 credentials and download `credentials.json`
+  </Step>
+  <Step title="Environment Variables">
+    Configure OAuth redirect URI and session secret:
+    ```bash
+    GOOGLE_CREDENTIALS_PATH=credentials.json
+    GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+    SESSION_SECRET=your-secret-key-here
+    FRONTEND_URL=http://localhost:3000
+    ```
+  </Step>
+  <Step title="Redis">
+    Ensure Redis is running and accessible
+  </Step>
+</Steps>
+
+### Environment Variables
+
+<ParamField path="GOOGLE_CREDENTIALS_PATH" type="string" default="credentials.json">
+  Path to Google OAuth credentials JSON file
+</ParamField>
+
+<ParamField path="GOOGLE_REDIRECT_URI" type="string" default="http://localhost:8000/auth/google/callback">
+  OAuth callback URL (must match Google Cloud Console configuration)
+</ParamField>
+
+<ParamField path="FRONTEND_URL" type="string" default="http://localhost:3000">
+  Frontend application URL for post-authentication redirects
+</ParamField>
+
+<ParamField path="COOKIE_DOMAIN" type="string">
+  Cookie domain (omit for localhost, set for production domains)
+</ParamField>
+
+<ParamField path="SESSION_SECRET" type="string" required>
+  Secret key for session signing (generate with `openssl rand -hex 32`)
+</ParamField>
+
+<ParamField path="SESSION_TTL_SECONDS" type="integer" default="604800">
+  Session expiration time in seconds (default: 7 days)
+</ParamField>
+
+<ParamField path="OAUTH_STATE_TTL_SECONDS" type="integer" default="600">
+  OAuth state token expiration in seconds (default: 10 minutes)
+</ParamField>
+
+<ParamField path="ENVIRONMENT" type="string" default="development">
+  Environment mode: `development` or `production`
+</ParamField>
+
+## Example: Complete Authentication Flow
+
+```typescript
+// 1. Start login flow
+const loginResponse = await fetch('http://localhost:8000/auth/google/login?frontend_redirect=http://localhost:3000/dashboard');
+const { authorization_url } = await loginResponse.json();
+
+// 2. Redirect user to Google
+window.location.href = authorization_url;
+
+// 3. After OAuth, user is redirected to /dashboard with session cookie
+
+// 4. Check session status
+const sessionResponse = await fetch('http://localhost:8000/auth/session', {
+  credentials: 'include' // Include cookies
+});
+const session = await sessionResponse.json();
+console.log(session);
+// {
+//   "session_id": "...",
+//   "user_email": "user@example.com",
+//   "authenticated": true,
+//   "created_at": "2026-03-08T10:30:00.000Z"
+// }
+
+// 5. Make authenticated API calls
+const chatResponse = await fetch('http://localhost:8000/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  credentials: 'include', // Include session cookie
+  body: JSON.stringify({
+    user_message: 'What meetings do I have today?'
+  })
+});
+
+// 6. Logout when done
+await fetch('http://localhost:8000/auth/logout', {
+  method: 'POST',
+  credentials: 'include'
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Chat Endpoints" icon="comments" href="/api/chat">
+    Send messages and interact with the agent
+  </Card>
+  <Card title="API Overview" icon="book" href="/api/overview">
+    Learn about the API architecture
+  </Card>
+</CardGroup>

@@ -1,0 +1,405 @@
+---
+title: Task Management
+description: Create, update, and manage Google Tasks with natural language
+---
+
+AgenticPal integrates with Google Tasks to help you manage your todo lists. Create, complete, update, and delete tasks using conversational commands.
+
+## Available Operations
+
+### Create Tasks
+
+Add new tasks to your todo list:
+
+```python
+# Natural language examples
+"Create a task: buy groceries"
+"Add a todo: finish project report"
+"Remind me to call the dentist"
+"Create task 'Review PR' due tomorrow"
+```
+
+**Tool**: `create_task`
+
+**Parameters**:
+- `title` (required): Task title/description
+- `tasklist` (optional): Task list ID (defaults to primary list)
+- `due` (optional): Due date in RFC 3339 format (e.g., "2026-02-15T00:00:00Z")
+- `notes` (optional): Additional task notes
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "task_id": "task_abc123",
+  "message": "Task 'Buy groceries' created successfully.",
+  "task": {
+    "id": "task_abc123",
+    "title": "Buy groceries",
+    "status": "needsAction",
+    "due": "2026-03-10T00:00:00Z",
+    "notes": "milk, eggs, bread"
+  }
+}
+```
+
+### List Tasks
+
+View your current todo list:
+
+```python
+"Show me my tasks"
+"What's on my todo list?"
+"List all my incomplete tasks"
+```
+
+**Tool**: `list_tasks`
+
+**Parameters**:
+- `tasklist` (optional): Task list ID (defaults to primary)
+- `show_completed` (optional): Include completed tasks (default: false)
+- `max_results` (optional): Maximum tasks to return (default: 20)
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "message": "Found 3 task(s).",
+  "tasks": [
+    {
+      "id": "task_abc123",
+      "title": "Buy groceries",
+      "status": "needsAction",
+      "due": "2026-03-10T00:00:00Z",
+      "notes": "milk, eggs, bread",
+      "updated": "2026-03-08T10:30:00Z"
+    }
+  ],
+  "list_id": "primary_list_id"
+}
+```
+
+### Mark Task Complete
+
+Check off completed tasks:
+
+```python
+"Mark 'buy groceries' as done"
+"I finished the project report"
+"Complete the dentist task"
+```
+
+**Tool**: `mark_task_complete`
+
+**Parameters**:
+- `task_id` (required): The task ID
+- `tasklist` (optional): Task list ID (defaults to primary)
+
+Changes task status from `needsAction` to `completed`.
+
+### Mark Task Incomplete
+
+Reopen a completed task:
+
+```python
+"Mark 'buy groceries' as incomplete"
+"Reopen the project task"
+"Uncomplete that task"
+```
+
+**Tool**: `mark_task_incomplete`
+
+**Parameters**:
+- `task_id` (required): The task ID
+- `tasklist` (optional): Task list ID (defaults to primary)
+
+Changes task status from `completed` back to `needsAction`.
+
+### Update Tasks
+
+Modify task details:
+
+```python
+"Change the title of my task to 'Buy groceries and supplies'"
+"Update the due date to next Friday"
+"Add notes to the project task: 'needs review from Sarah'"
+```
+
+**Tool**: `update_task`
+
+**Parameters**:
+- `task_id` (required): The task ID
+- `tasklist` (optional): Task list ID (defaults to primary)
+- `title` (optional): New task title
+- `due` (optional): New due date (RFC 3339 format)
+- `notes` (optional): New task notes
+
+Only provided fields are updated; others remain unchanged.
+
+### Delete Tasks
+
+Remove tasks from your list:
+
+```python
+"Delete the groceries task"
+"Remove my dentist reminder"
+"Delete task XYZ"
+```
+
+**Tool**: `delete_task`
+
+**Parameters**:
+- `task_id` (required): The task ID
+- `tasklist` (optional): Task list ID (defaults to primary)
+
+<Warning>
+Deleting tasks requires confirmation. See [Confirmations](/features/confirmations) for details.
+</Warning>
+
+### Get Task Lists
+
+View all available task lists:
+
+```python
+"Show me my task lists"
+"What task lists do I have?"
+"List all my todo lists"
+```
+
+**Tool**: `get_task_lists`
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "message": "Found 3 task list(s).",
+  "lists": [
+    {
+      "id": "list_abc123",
+      "title": "My Tasks",
+      "updated": "2026-03-08T12:00:00Z"
+    },
+    {
+      "id": "list_def456",
+      "title": "Work Projects",
+      "updated": "2026-03-07T09:30:00Z"
+    }
+  ]
+}
+```
+
+## Task Status
+
+Google Tasks uses two status values:
+
+- **`needsAction`**: Task is incomplete (default for new tasks)
+- **`completed`**: Task is finished
+
+The `mark_task_complete` and `mark_task_incomplete` tools toggle between these states.
+
+## Due Dates
+
+### Format
+
+Due dates must be in RFC 3339 format:
+```
+2026-03-15T00:00:00Z
+```
+
+AgenticPal's date parsing utilities automatically convert natural language to this format:
+
+```python
+from agent.date_utils import parse_datetime
+
+# Natural language input
+date_str = "tomorrow"
+iso_date, is_all_day = parse_datetime(date_str)
+# Returns: ("2026-03-09T00:00:00", True)
+```
+
+### No Time Component
+
+Task due dates typically don't include specific times—only dates. The time is usually set to `00:00:00Z` (midnight UTC).
+
+## Implementation Details
+
+Task operations are handled by `services/tasks.py:TasksService`:
+
+```python
+class TasksService:
+    def __init__(self, service):
+        """Initialize with authenticated Google Tasks service."""
+        self.service = service
+        self._default_list_id = None
+```
+
+### Default Task List
+
+The service caches the default (primary) task list ID:
+
+```python
+def _get_default_list_id(self) -> Optional[str]:
+    """Get the default task list ID (cached)."""
+    if self._default_list_id:
+        return self._default_list_id
+    
+    try:
+        lists = self.service.tasklists().list().execute()
+        items = lists.get("items", [])
+        if items:
+            self._default_list_id = items[0]["id"]
+            return self._default_list_id
+    except Exception:
+        pass
+    return None
+```
+
+If no `tasklist` parameter is provided, methods automatically use this default list.
+
+## Common Use Cases
+
+### Quick Task Capture
+```python
+User: "Create a task: buy groceries"
+Agent: "Task 'buy groceries' created successfully."
+```
+
+### Task with Due Date
+```python
+User: "Add a todo: finish report, due Friday"
+Agent: [Parses "Friday" to ISO date]
+"Task 'finish report' created with due date March 12, 2026."
+```
+
+### Complete Multiple Tasks
+```python
+User: "Show me my tasks"
+Agent: "You have 5 tasks:
+1. Buy groceries
+2. Call dentist
+3. Finish report
+..."
+
+User: "Mark tasks 1 and 2 as done"
+Agent: "Marked 'Buy groceries' as completed.
+Marked 'Call dentist' as completed."
+```
+
+### Update Task Details
+```python
+User: "List my tasks"
+Agent: "Task 'Buy milk' is on your list."
+
+User: "Change it to 'Buy milk and eggs'"
+Agent: [Updates task title]
+"Task updated successfully."
+```
+
+### Multi-List Management
+```python
+User: "Show me my task lists"
+Agent: "You have 2 lists:
+1. My Tasks
+2. Work Projects"
+
+User: "Create a task 'Review code' in Work Projects"
+Agent: [Creates task in specified list]
+"Task created in 'Work Projects' list."
+```
+
+## Error Handling
+
+The service handles various error conditions:
+
+```python
+try:
+    result = tasks_service.mark_task_complete(
+        task_id="invalid_id"
+    )
+except HttpError as error:
+    if error.resp.status == 404:
+        return {
+            "success": False,
+            "message": f"Task '{task_id}' not found.",
+            "error": str(error)
+        }
+```
+
+Common errors:
+- **404**: Task or task list not found
+- **401**: Authentication failed (token expired)
+- **403**: Insufficient permissions
+- **400**: Invalid parameters (e.g., malformed due date)
+
+## Task Organization
+
+### Multiple Lists
+
+Google Tasks supports multiple task lists (e.g., "Personal", "Work", "Shopping"). Use the `get_task_lists` tool to discover available lists, then specify the `tasklist` parameter when creating or managing tasks.
+
+### Task Hierarchy
+
+<Note>
+Google Tasks API supports subtasks, but AgenticPal doesn't currently expose this feature. Tasks are managed at a flat hierarchy level.
+</Note>
+
+## Best Practices
+
+### Descriptive Titles
+
+**Good**: "Buy groceries: milk, eggs, bread"
+**Avoid**: "TODO"
+
+Use task titles that clearly describe what needs to be done.
+
+### Use Notes for Details
+
+For complex tasks, put additional context in the notes field:
+
+```python
+create_task(
+    title="Review PR #123",
+    notes="Check for test coverage, security issues, and code style"
+)
+```
+
+### Set Due Dates
+
+Tasks with due dates are easier to prioritize:
+
+```python
+"Create task 'Submit report' due Friday"
+```
+
+### Regular Review
+
+Periodically list tasks to stay organized:
+
+```python
+"Show me my tasks"  # Daily review
+"List completed tasks"  # Weekly cleanup
+```
+
+## Limitations
+
+<Info>
+Current limitations:
+- No subtask support
+- Cannot move tasks between lists
+- Cannot set priority/importance
+- Cannot add attachments
+- Cannot set reminders/notifications
+
+These features may be added in future versions.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Calendar" icon="calendar" href="/features/calendar">
+    Manage calendar events and appointments
+  </Card>
+  <Card title="Multi-turn Conversations" icon="messages" href="/features/multi-turn-conversations">
+    See how context is maintained
+  </Card>
+</CardGroup>

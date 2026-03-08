@@ -1,0 +1,150 @@
+---
+title: 'Cancel Action'
+description: 'Cancel pending actions that are waiting for user confirmation'
+---
+
+## POST /chat/cancel
+
+Cancel a pending action that was planned by the agent and is waiting for user confirmation. This endpoint is used when the agent returns `requires_confirmation: true` in the chat response or emits a `confirmation_required` event during streaming, but the user decides not to proceed.
+
+### Authentication
+
+Requires a valid session cookie (`session_id`) obtained through the [OAuth flow](/api/authentication).
+
+### Request Body
+
+<ParamField body="thread_id" type="string" required>
+  Thread ID of the conversation to cancel. This is the same thread ID returned by the agent when it requested confirmation.
+</ParamField>
+
+### Request Example
+
+```json
+{
+  "thread_id": "thread_xyz789"
+}
+```
+
+### Response
+
+<ResponseField name="thread_id" type="string" required>
+  Thread ID of the conversation
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Cancellation status - `"cancelled"` when the action is successfully cancelled
+</ResponseField>
+
+<ResponseField name="response" type="string" required>
+  Confirmation message - always `"Action cancelled."`
+</ResponseField>
+
+<ResponseField name="cancelled" type="boolean" required>
+  Whether the cancellation was successful - always `true`
+</ResponseField>
+
+### Response Example
+
+```json
+{
+  "thread_id": "thread_xyz789",
+  "status": "cancelled",
+  "response": "Action cancelled.",
+  "cancelled": true
+}
+```
+
+### Workflow Example
+
+#### 1. Agent requests confirmation
+
+When using synchronous chat:
+
+```json
+// Response from POST /chat
+{
+  "response": "I can schedule that meeting for you.",
+  "thread_id": "thread_xyz789",
+  "requires_confirmation": true,
+  "confirmation_message": "Should I create a meeting titled 'Project Review' on March 10th at 3 PM?"
+}
+```
+
+Or when using streaming:
+
+```
+event: confirmation_required
+data: {"event_type":"confirmation_required","data":{"thread_id":"thread_xyz789","message":"Should I create a meeting titled 'Project Review' on March 10th at 3 PM?"}}
+```
+
+#### 2. User cancels
+
+```bash
+curl -X POST "https://api.example.com/chat/cancel" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session_id=your_session_id" \
+  -d '{
+    "thread_id": "thread_xyz789"
+  }'
+```
+
+#### 3. Action is cancelled
+
+The agent cancels the planned actions and confirms the cancellation.
+
+### Status Codes
+
+| Code | Description |
+|------|-------------|
+| 200  | Action cancelled successfully |
+| 401  | Not authenticated - missing or invalid session cookie |
+| 429  | Rate limit exceeded |
+| 500  | Failed to cancel action |
+
+### Error Response
+
+```json
+{
+  "error": "cancellation_error",
+  "message": "Failed to cancel action: <error details>"
+}
+```
+
+### Rate Limiting
+
+Default rate limit: 60 requests per minute per session.
+
+### cURL Example
+
+```bash
+curl -X POST "https://api.example.com/chat/cancel" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session_id=your_session_id" \
+  -d '{
+    "thread_id": "thread_xyz789"
+  }'
+```
+
+### JavaScript Example
+
+```javascript
+const response = await fetch('https://api.example.com/chat/cancel', {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    thread_id: 'thread_xyz789'
+  })
+});
+
+const result = await response.json();
+console.log('Cancellation status:', result.response);
+```
+
+<Note>
+  After cancelling an action, you can continue the conversation by sending a new message with the same thread_id. The conversation state is preserved, and you can ask the agent to perform different actions or provide more information.
+</Note>
+
+<Info>
+  If you want to proceed with the action instead of cancelling it, use the [confirm](/api/endpoints/confirm) endpoint.
+</Info>

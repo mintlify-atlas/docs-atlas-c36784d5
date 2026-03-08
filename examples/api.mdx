@@ -1,0 +1,403 @@
+---
+title: "API Usage"
+description: "REST API examples for integrating AgenticPal into your applications"
+---
+
+## Overview
+
+The AgenticPal API provides RESTful endpoints for programmatic access to the agent. It supports synchronous responses, streaming via Server-Sent Events (SSE), and conversation management.
+
+**Base URL:** `http://localhost:8000` (development)
+
+## Authentication
+
+All chat endpoints require authentication via session cookies. First, authenticate using the OAuth flow:
+
+<Steps>
+<Step title="Start OAuth flow">
+
+```bash
+curl http://localhost:8000/auth/login
+```
+
+This returns a Google OAuth URL.
+
+</Step>
+
+<Step title="Complete OAuth and get session">
+
+After OAuth callback, you'll receive a `session_id` cookie that authenticates subsequent requests.
+
+</Step>
+</Steps>
+
+## Synchronous Chat
+
+Send a message and receive a complete response.
+
+### Endpoint
+
+```
+POST /chat
+```
+
+### Request
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -b "session_id=your-session-id" \
+  -d '{
+    "user_message": "What meetings do I have today?",
+    "thread_id": "main",
+    "conversation_history": []
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/chat",
+    cookies={"session_id": "your-session-id"},
+    json={
+        "user_message": "What meetings do I have today?",
+        "thread_id": "main",
+        "conversation_history": []
+    }
+)
+
+data = response.json()
+print(data["response"])
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8000/chat', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  credentials: 'include',
+  body: JSON.stringify({
+    user_message: 'What meetings do I have today?',
+    thread_id: 'main',
+    conversation_history: []
+  })
+});
+
+const data = await response.json();
+console.log(data.response);
+```
+
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "response": "You have 2 meetings today: Team Standup at 9:00 AM and Client Call at 2:00 PM.",
+  "thread_id": "main",
+  "actions": [
+    {
+      "id": "action_1",
+      "tool": "list_calendar_events",
+      "success": true,
+      "result": {
+        "events": [
+          {
+            "summary": "Team Standup",
+            "start": "2026-03-08T09:00:00Z"
+          },
+          {
+            "summary": "Client Call",
+            "start": "2026-03-08T14:00:00Z"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_confirmation": false
+}
+```
+
+## Rate Limiting
+
+The API implements rate limiting based on session ID or IP address:
+
+- **Default limit:** 60 requests per minute
+- **Configure:** Set `RATE_LIMIT` environment variable
+
+```bash
+export RATE_LIMIT="100/minute"
+```
+
+When rate limited, you'll receive a `429` response:
+
+```json
+{
+  "error": "rate_limit_exceeded",
+  "message": "Rate limit exceeded. Try again later."
+}
+```
+
+## CORS Configuration
+
+By default, the API allows requests from:
+
+- `http://localhost:3000` (dev server)
+- Your configured production frontend
+
+Configure additional origins:
+
+```bash
+export CORS_ORIGINS="http://localhost:3000,https://app.example.com,https://staging.example.com"
+```
+
+## Health Check
+
+Check API and Redis connectivity.
+
+### Endpoint
+
+```
+GET /health
+```
+
+### Request
+
+<CodeGroup>
+
+```bash cURL
+curl http://localhost:8000/health
+```
+
+```python Python
+import requests
+
+response = requests.get("http://localhost:8000/health")
+print(response.json())
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8000/health');
+const data = await response.json();
+console.log(data);
+```
+
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "status": "healthy",
+  "version": "0.1.0",
+  "redis_connected": true,
+  "timestamp": "2026-03-08T10:30:00Z"
+}
+```
+
+## Confirmation Flow
+
+For destructive operations, the agent requests user confirmation.
+
+### Step 1: Send message that requires confirmation
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -b "session_id=your-session-id" \
+  -d '{
+    "user_message": "Delete all my draft emails"
+  }'
+```
+
+### Response
+
+```json
+{
+  "response": "I found 15 draft emails. Are you sure you want to delete all of them?",
+  "thread_id": "thread_abc123",
+  "requires_confirmation": true,
+  "confirmation_message": "This will permanently delete 15 draft emails. Confirm?",
+  "actions": [
+    {
+      "id": "action_1",
+      "tool": "delete_emails",
+      "success": false,
+      "result": null
+    }
+  ]
+}
+```
+
+### Step 2: Confirm the action
+
+```bash
+curl -X POST http://localhost:8000/chat/confirm \
+  -H "Content-Type: application/json" \
+  -b "session_id=your-session-id" \
+  -d '{
+    "thread_id": "thread_abc123",
+    "confirmation": "yes"
+  }'
+```
+
+### Response
+
+```json
+{
+  "thread_id": "thread_abc123",
+  "status": "completed",
+  "response": "I've successfully deleted 15 draft emails.",
+  "results": {
+    "action_1": {
+      "tool": "delete_emails",
+      "success": true,
+      "result": {"deleted_count": 15}
+    }
+  }
+}
+```
+
+### Step 3: Cancel the action (alternative)
+
+```bash
+curl -X POST http://localhost:8000/chat/cancel \
+  -H "Content-Type: application/json" \
+  -b "session_id=your-session-id" \
+  -d '{
+    "thread_id": "thread_abc123"
+  }'
+```
+
+### Response
+
+```json
+{
+  "thread_id": "thread_abc123",
+  "status": "cancelled",
+  "response": "Action cancelled.",
+  "cancelled": true
+}
+```
+
+## Error Handling
+
+The API returns consistent error responses:
+
+### Authentication Error (401)
+
+```json
+{
+  "error": "not_authenticated",
+  "message": "Authentication required. Please log in first."
+}
+```
+
+### Agent Error (500)
+
+```json
+{
+  "error": "agent_error",
+  "message": "Agent error: Unable to connect to Google Calendar API"
+}
+```
+
+### Validation Error (422)
+
+```json
+{
+  "error": "validation_error",
+  "message": "Invalid request format",
+  "details": [
+    {
+      "loc": ["body", "user_message"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+```
+
+## Thread Management
+
+Conversations are organized by thread IDs for context management:
+
+<CodeGroup>
+
+```python Python Example
+import requests
+import uuid
+
+# Create a new thread
+thread_id = str(uuid.uuid4())
+
+# First message
+response1 = requests.post(
+    "http://localhost:8000/chat",
+    cookies={"session_id": "your-session-id"},
+    json={
+        "user_message": "Schedule a meeting for tomorrow",
+        "thread_id": thread_id
+    }
+)
+
+# Follow-up message in same thread
+response2 = requests.post(
+    "http://localhost:8000/chat",
+    cookies={"session_id": "your-session-id"},
+    json={
+        "user_message": "Make it at 2pm",
+        "thread_id": thread_id  # Same thread for context
+    }
+)
+```
+
+```javascript JavaScript Example
+const threadId = crypto.randomUUID();
+
+// First message
+const response1 = await fetch('http://localhost:8000/chat', {
+  method: 'POST',
+  credentials: 'include',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({
+    user_message: 'Schedule a meeting for tomorrow',
+    thread_id: threadId
+  })
+});
+
+// Follow-up in same thread
+const response2 = await fetch('http://localhost:8000/chat', {
+  method: 'POST',
+  credentials: 'include',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({
+    user_message: 'Make it at 2pm',
+    thread_id: threadId  // Same thread for context
+  })
+});
+```
+
+</CodeGroup>
+
+<Note>
+  If you don't provide a `thread_id`, the API will generate one automatically. Include it in follow-up requests to maintain conversation context.
+</Note>
+
+## API Documentation
+
+Interactive API documentation is available at:
+
+<CardGroup cols={2}>
+  <Card title="Swagger UI" icon="book" href="http://localhost:8000/docs">
+    Interactive API explorer with request/response examples
+  </Card>
+
+  <Card title="ReDoc" icon="file-lines" href="http://localhost:8000/redoc">
+    Alternative API documentation interface
+  </Card>
+</CardGroup>

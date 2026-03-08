@@ -1,0 +1,264 @@
+---
+title: API Overview
+description: Understanding the AgenticPal FastAPI backend architecture
+---
+
+## Introduction
+
+The AgenticPal API is a FastAPI-based backend that powers a LangGraph personal assistant agent. It provides endpoints for managing Google Calendar events, Gmail messages, and Google Tasks through natural language conversations.
+
+**Current Version:** `v0.1.0`
+
+## Architecture
+
+The API is built with:
+
+- **FastAPI** - Modern, high-performance web framework
+- **LangGraph** - Stateful agent orchestration
+- **Redis** - Session management and conversation state persistence
+- **Google OAuth2** - Secure authentication
+- **Server-Sent Events (SSE)** - Real-time streaming responses
+
+### Core Components
+
+<CardGroup cols={2}>
+  <Card title="Chat Endpoints" icon="comments">
+    Synchronous and streaming chat interfaces with the LangGraph agent
+  </Card>
+  <Card title="Authentication" icon="lock">
+    Google OAuth2 flow with session-based credential storage
+  </Card>
+  <Card title="Session Management" icon="database">
+    Redis-backed sessions with HttpOnly cookies
+  </Card>
+  <Card title="State Persistence" icon="hard-drive">
+    LangGraph checkpoints stored in Redis for conversation continuity
+  </Card>
+</CardGroup>
+
+## Base URL
+
+The API runs on configurable host and port:
+
+```bash
+# Development (default)
+http://localhost:8000
+
+# Production
+https://your-domain.com
+```
+
+Configure via environment variables:
+```bash
+HOST=0.0.0.0
+PORT=8000
+```
+
+## API Documentation
+
+Interactive API documentation is available at:
+
+- **Swagger UI**: `/docs`
+- **ReDoc**: `/redoc`
+
+## Rate Limiting
+
+The API implements per-session rate limiting using the `slowapi` middleware.
+
+<ParamField path="rate_limit" type="string" default="60/minute">
+  Rate limit for authenticated requests. Tracks by session ID if available, otherwise by IP address.
+</ParamField>
+
+**Configuration:**
+```bash
+# Environment variable
+RATE_LIMIT=60/minute
+```
+
+**Rate Limit Key Strategy:**
+- If session cookie exists: `session:{session_id}`
+- Otherwise: client IP address
+
+When rate limit is exceeded, the API returns:
+```json
+{
+  "error": "rate_limit_exceeded",
+  "message": "Rate limit exceeded: 60 per minute"
+}
+```
+
+## CORS Configuration
+
+CORS is configured to allow requests from specified origins:
+
+**Default allowed origins:**
+- `http://localhost:3000` - Local development
+- `https://app.example.com` - Production frontend (placeholder)
+
+**Configuration:**
+```bash
+# Comma-separated list of origins
+CORS_ORIGINS=http://localhost:3000,https://app.example.com
+```
+
+**CORS Settings:**
+- Credentials: Enabled (cookies supported)
+- Methods: `GET`, `POST`, `OPTIONS`
+- Headers: All (`*`)
+
+## Health Checks
+
+The API provides health check endpoints to monitor service status.
+
+### GET /health
+
+Returns the health status of the API and its dependencies.
+
+**Response:**
+
+<ResponseField name="status" type="string">
+  Service status: `healthy` or `degraded`
+</ResponseField>
+
+<ResponseField name="version" type="string">
+  API version (e.g., `0.1.0`)
+</ResponseField>
+
+<ResponseField name="redis_connected" type="boolean">
+  Whether Redis connection is active
+</ResponseField>
+
+<ResponseField name="timestamp" type="string">
+  Current server timestamp (UTC)
+</ResponseField>
+
+**Example Response:**
+```json
+{
+  "status": "healthy",
+  "version": "0.1.0",
+  "redis_connected": true,
+  "timestamp": "2026-03-08T12:34:56.789Z"
+}
+```
+
+### GET /
+
+API root endpoint returning basic information.
+
+**Example Response:**
+```json
+{
+  "name": "Agentic-PAL API",
+  "version": "0.1.0",
+  "docs": "/docs",
+  "health": "/health"
+}
+```
+
+## Redis Configuration
+
+The API uses Redis for two purposes with separate database indexes:
+
+### Database 0: Sessions
+- User sessions (7-day TTL)
+- OAuth credentials
+- OAuth state tokens (10-minute TTL)
+- Pending messages for streaming (5-minute TTL)
+
+### Database 1: LangGraph Checkpoints
+- Conversation state
+- Agent execution history
+- Thread persistence
+
+**Configuration:**
+```bash
+REDIS_URL=redis://localhost:6379
+SESSION_TTL_SECONDS=604800  # 7 days
+OAUTH_STATE_TTL_SECONDS=600  # 10 minutes
+```
+
+## Environment Variables
+
+Key configuration options:
+
+<ParamField path="HOST" type="string" default="0.0.0.0">
+  API server host
+</ParamField>
+
+<ParamField path="PORT" type="integer" default="8000">
+  API server port
+</ParamField>
+
+<ParamField path="ENVIRONMENT" type="string" default="development">
+  Environment mode: `development` or `production`
+</ParamField>
+
+<ParamField path="REDIS_URL" type="string" default="redis://localhost:6379">
+  Redis connection URL
+</ParamField>
+
+<ParamField path="CORS_ORIGINS" type="string">
+  Comma-separated list of allowed CORS origins
+</ParamField>
+
+<ParamField path="RATE_LIMIT" type="string" default="60/minute">
+  API rate limit per session/IP
+</ParamField>
+
+<ParamField path="SESSION_SECRET" type="string" required>
+  Secret key for session signing (required in production)
+</ParamField>
+
+<ParamField path="SESSION_TTL_SECONDS" type="integer" default="604800">
+  Session expiration time (default: 7 days)
+</ParamField>
+
+<ParamField path="GOOGLE_CREDENTIALS_PATH" type="string" default="credentials.json">
+  Path to Google OAuth credentials file
+</ParamField>
+
+<ParamField path="GOOGLE_REDIRECT_URI" type="string" default="http://localhost:8000/auth/google/callback">
+  OAuth callback URL
+</ParamField>
+
+<ParamField path="FRONTEND_URL" type="string" default="http://localhost:3000">
+  Frontend application URL for post-auth redirects
+</ParamField>
+
+<ParamField path="COOKIE_DOMAIN" type="string">
+  Cookie domain (leave unset for localhost)
+</ParamField>
+
+## Error Handling
+
+The API uses consistent error response format:
+
+```json
+{
+  "error": "error_code",
+  "message": "Human-readable error message"
+}
+```
+
+**Common Error Codes:**
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `no_session` | 401 | No active session cookie |
+| `session_expired` | 401 | Session has expired |
+| `no_credentials` | 401 | Not authenticated with Google |
+| `rate_limit_exceeded` | 429 | Too many requests |
+| `agent_error` | 500 | LangGraph agent execution error |
+| `internal_error` | 500 | Unexpected server error |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/authentication">
+    Learn how to authenticate with Google OAuth
+  </Card>
+  <Card title="Chat Endpoints" icon="comments" href="/api/chat">
+    Send messages and stream agent responses
+  </Card>
+</CardGroup>

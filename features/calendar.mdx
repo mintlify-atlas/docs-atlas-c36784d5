@@ -1,0 +1,249 @@
+---
+title: Calendar Management
+description: Create, update, search, and delete calendar events with natural language
+---
+
+AgenticPal provides comprehensive calendar management through Google Calendar integration. Use natural language to manage your schedule without remembering complex commands.
+
+## Available Operations
+
+### Create Events
+
+Add new calendar events with intelligent date/time parsing:
+
+```python
+# Natural language examples
+"Add a meeting with John next Tuesday at 2pm"
+"Schedule a dentist appointment tomorrow at 10am"
+"Create an event called 'Team Sync' on Friday at 3pm for 1 hour"
+```
+
+The system automatically:
+- Parses relative dates like "tomorrow", "next Tuesday", "in 2 hours"
+- Calculates end times based on specified duration (defaults to 1 hour)
+- Supports time formats like "2pm", "14:00", "2:30 PM"
+- Adds optional attendees and descriptions
+
+**Tool**: `add_calendar_event`
+
+**Parameters**:
+- `title` (required): Event title
+- `start_time` (required): ISO format or natural language datetime
+- `end_time` (required): ISO format or natural language datetime
+- `description` (optional): Event description
+- `attendees` (optional): List of email addresses
+- `timezone` (optional): Defaults to UTC
+
+### List Events
+
+View upcoming events in a specified time range:
+
+```python
+"Show me my calendar for today"
+"What meetings do I have this week?"
+"List my events for next Monday"
+```
+
+**Tool**: `list_calendar_events`
+
+**Parameters**:
+- `max_results` (optional): Maximum number of events to return (default: 20)
+- `time_min` (optional): ISO format start time
+- `time_max` (optional): ISO format end time
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "message": "Found 5 event(s).",
+  "events": [
+    {
+      "id": "event_abc123",
+      "title": "Team Meeting",
+      "start": "2026-03-10T14:00:00",
+      "end": "2026-03-10T15:00:00",
+      "description": "Weekly sync"
+    }
+  ]
+}
+```
+
+### Search Events
+
+Find specific events by keyword:
+
+```python
+"Find my dentist appointment"
+"Search for events with 'project' in the title"
+"When is my meeting with Sarah?"
+```
+
+**Tool**: `search_calendar_events`
+
+**Parameters**:
+- `query` (required): Search term to match against event titles
+- `max_results` (optional): Maximum results (default: 5)
+
+Searches the next 30 days by default and returns matching events sorted by start time.
+
+### Update Events
+
+Modify existing event details:
+
+```python
+"Move my 2pm meeting to 3pm"
+"Change the dentist appointment title to 'Dental Checkup'"
+"Update the project meeting description"
+```
+
+**Tool**: `update_calendar_event`
+
+**Parameters**:
+- `event_id` (required): The event ID to update
+- `title` (optional): New event title
+- `start_time` (optional): New start time
+- `end_time` (optional): New end time
+- `description` (optional): New description
+
+### Delete Events
+
+Remove events from your calendar:
+
+```python
+"Delete my dentist appointment"
+"Cancel the meeting on Friday"
+"Remove the 3pm event"
+```
+
+**Tool**: `delete_calendar_event`
+
+**Parameters**:
+- `event_id` (required): The event ID to delete
+
+<Warning>
+Deleting calendar events requires confirmation. See [Confirmations](/features/confirmations) for details.
+</Warning>
+
+## Date & Time Parsing
+
+AgenticPal uses intelligent date parsing from `agent/date_utils.py`:
+
+### Supported Date Formats
+
+**Relative Dates**:
+- "tomorrow", "today", "yesterday"
+- "next Tuesday", "this Friday"
+- "in 2 hours", "in 3 days"
+
+**Absolute Dates**:
+- ISO format: `2026-03-15T14:00:00`
+- Natural: "March 15th at 2pm"
+- Date only: "2026-03-15" (time defaults to 9am)
+
+**Time Parsing**:
+- 12-hour format: "2pm", "2:30 PM", "10:15am"
+- 24-hour format: "14:00", "22:30"
+- Relative: "noon", "midnight"
+- Context: "morning" (9am), "afternoon" (2pm), "evening" (6pm)
+
+### Duration Calculation
+
+If no end time is specified, the system calculates it based on duration:
+
+```python
+from agent.date_utils import parse_duration, calculate_end_time
+
+# Parse duration strings
+parse_duration("1 hour")     # timedelta(hours=1)
+parse_duration("30 minutes") # timedelta(minutes=30)
+parse_duration("2h")         # timedelta(hours=2)
+parse_duration("1.5 hours")  # timedelta(hours=1.5)
+
+# Calculate end time
+calculate_end_time(
+    start_time="2026-03-10T14:00:00",
+    duration="1 hour"
+)  # Returns "2026-03-10T15:00:00"
+```
+
+## Implementation Details
+
+Calendar operations are handled by `services/calendar.py:CalendarService`:
+
+```python
+class CalendarService:
+    def __init__(self, service):
+        """Initialize with authenticated Google Calendar service."""
+        self.service = service
+        self.primary_calendar_id = "primary"
+```
+
+All methods return structured dictionaries:
+- `success`: Boolean indicating success/failure
+- `message`: Human-readable status message
+- `event_id`: ID of created/modified event (when applicable)
+- `event` or `events`: Event data
+- `error`: Error details on failure
+
+## Common Use Cases
+
+### Quick Event Creation
+```python
+"Add lunch with Sarah tomorrow at noon"
+# Automatically:
+# - Parses "tomorrow at noon" to ISO datetime
+# - Sets 1-hour duration (12:00 PM - 1:00 PM)
+# - Creates event on primary calendar
+```
+
+### Weekly Schedule Review
+```python
+"What's on my calendar this week?"
+# Lists all events from today through end of week
+# Ordered by start time
+# Shows title, time, and description
+```
+
+### Event Rescheduling
+```python
+User: "Find my dentist appointment"
+Agent: "Found event 'Dentist' on March 15 at 10am"
+User: "Move it to March 16 at 2pm"
+Agent: "Event updated successfully"
+```
+
+## Error Handling
+
+The service includes comprehensive error handling:
+
+```python
+try:
+    result = calendar_service.add_event(
+        title="Meeting",
+        start_time="invalid_date",
+        end_time="invalid_date"
+    )
+except HttpError as error:
+    return {
+        "success": False,
+        "message": f"Failed to create event: {error}",
+        "error": str(error)
+    }
+```
+
+Common errors:
+- **404**: Event not found
+- **Invalid datetime format**: Date parsing failed
+- **Authentication error**: OAuth token expired
+- **Permission denied**: Insufficient calendar scope
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Natural Language" icon="comments" href="/features/natural-language">
+    Learn how AgenticPal understands your requests
+  </Card>
+  <Card title="Multi-turn Conversations" icon="messages" href="/features/multi-turn-conversations">
+    See how context is maintained across interactions
+  </Card>
+</CardGroup>

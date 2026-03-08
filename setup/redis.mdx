@@ -1,0 +1,412 @@
+---
+title: Redis Setup
+description: Configure Redis for session persistence and LangGraph checkpoints
+---
+
+AgenticPal uses Redis for session management and LangGraph checkpoint storage. While Redis is optional for CLI usage, it's required for the web API.
+
+## Why Redis?
+
+Redis provides:
+- **Session persistence**: User authentication across requests
+- **OAuth token storage**: Secure credential caching
+- **LangGraph checkpoints**: Conversation state management (`session.py:1-8`)
+- **Pending message queue**: Async message handling for SSE streams
+
+## Installation
+
+<Tabs>
+  <Tab title="macOS">
+    Install via Homebrew:
+    ```bash
+    brew install redis
+    ```
+    
+    Start Redis:
+    ```bash
+    brew services start redis
+    ```
+  </Tab>
+  
+  <Tab title="Ubuntu/Debian">
+    Install via apt:
+    ```bash
+    sudo apt update
+    sudo apt install redis-server
+    ```
+    
+    Start Redis:
+    ```bash
+    sudo systemctl start redis-server
+    sudo systemctl enable redis-server
+    ```
+  </Tab>
+  
+  <Tab title="Docker">
+    Run Redis in a container:
+    ```bash
+    docker run -d -p 6379:6379 --name agenticpal-redis redis:7-alpine
+    ```
+    
+    <Note>
+      This is the quickest way to get started for development.
+    </Note>
+  </Tab>
+  
+  <Tab title="Docker Compose">
+    Add to your `docker-compose.yml`:
+    ```yaml
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        volumes:
+          - redis-data:/data
+        command: redis-server --appendonly yes
+    
+    volumes:
+      redis-data:
+    ```
+    
+    Start services:
+    ```bash
+    docker-compose up -d
+    ```
+  </Tab>
+</Tabs>
+
+## Python Dependencies
+
+Install the required Redis client and checkpoint library:
+
+```bash
+uv add redis[asyncio]
+uv add langgraph-checkpoint-redis
+```
+
+<Note>
+  The `redis[asyncio]` extra includes `redis.asyncio` for async operations used by AgenticPal's web API.
+</Note>
+
+## Configuration
+
+Configure Redis connection in your `.env` file:
+
+```bash .env
+REDIS_URL=redis://localhost:6379
+```
+
+For remote Redis or authentication:
+
+```bash .env
+# With password
+REDIS_URL=redis://:password@localhost:6379
+
+# Remote host
+REDIS_URL=redis://redis.example.com:6379
+
+# Redis Cloud or managed service
+REDIS_URL=redis://default:password@redis-12345.cloud.redislabs.com:12345
+```
+
+## Redis Database Organization
+
+AgenticPal uses separate Redis databases for different purposes (`session.py:95`, `session.py:418-430`):
+
+| Database | Purpose | TTL |
+|----------|---------|-----|
+| `db=0` | User sessions, credentials, OAuth state | 7 days (configurable) |
+| `db=1` | LangGraph checkpoints | Persistent |
+
+<CodeGroup>
+```python session.py
+class SessionManager:
+    def __init__(self, redis_url: Optional[str] = None):
+        self._redis = redis.from_url(
+            self.redis_url,
+            db=0,  # Sessions use db=0
+            decode_responses=True
+        )
+```
+
+```python session.py
+def get_checkpoint_redis_url() -> str:
+    base_url = get_redis_url()
+    # Append db=1 for checkpoints
+    if "?" in base_url:
+        return f"{base_url}&db=1"
+    else:
+        return f"{base_url}/1"
+```
+</CodeGroup>
+
+## Session Storage
+
+The `SessionManager` class handles all Redis operations:
+
+### Key Prefixes
+
+```python
+SESSION_PREFIX = "session:"          # User sessions
+OAUTH_STATE_PREFIX = "oauth_state:"  # OAuth CSRF tokens
+CREDENTIALS_PREFIX = "credentials:"  # Google OAuth credentials
+PENDING_MESSAGE_PREFIX = "pending_msg:"  # SSE message queue
+```
+
+### Session Schema
+
+Sessions are stored as JSON with the following structure (`session.py:144-151`):
+
+```json
+{
+  "session_id": "urlsafe-token-32-bytes",
+  "user_email": "user@example.com",
+  "created_at": "2026-03-08T10:00:00Z",
+  "last_accessed": "2026-03-08T10:30:00Z",
+  "credentials": {
+    "token": "ya29...",
+    "refresh_token": "1//...",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "client_id": "...",
+    "client_secret": "...",
+    "scopes": ["calendar", "gmail", "tasks"]
+  },
+  "thread_ids": ["thread-uuid-1", "thread-uuid-2"]
+}
+```
+
+### TTL Configuration
+
+Configure session expiration in `.env`:
+
+```bash .env
+# Session TTL (default: 7 days)
+SESSION_TTL_SECONDS=604800
+
+# OAuth state TTL (default: 10 minutes)
+OAUTH_STATE_TTL_SECONDS=600
+```
+
+<Note>
+  Session TTL is automatically renewed on each access (`session.py:179-185`).
+</Note>
+
+## LangGraph Checkpoints
+
+LangGraph uses Redis db=1 for conversation checkpoints:
+
+<CodeGroup>
+```python Using checkpointer
+from api.session import create_redis_checkpointer
+
+# Create checkpointer for LangGraph
+checkpointer = await create_redis_checkpointer()
+
+# Use with LangGraph
+from langgraph.graph import StateGraph
+
+graph = StateGraph(...)
+compiled = graph.compile(checkpointer=checkpointer)
+```
+</CodeGroup>
+
+Checkpoints enable:
+- Conversation history across requests
+- Multi-turn interactions with context
+- Resuming interrupted conversations
+- Time-travel debugging
+
+## Verify Redis Connection
+
+Test your Redis setup:
+
+<CodeGroup>
+```python test_redis.py
+import asyncio
+from api.session import SessionManager
+
+async def test_redis():
+    manager = SessionManager()
+    
+    # Test connection
+    if await manager.ping():
+        print("✓ Redis connected")
+    else:
+        print("✗ Redis connection failed")
+        return
+    
+    # Test session creation
+    session = await manager.create_session("test@example.com")
+    print(f"✓ Created session: {session.session_id}")
+    
+    # Test session retrieval
+    retrieved = await manager.get_session(session.session_id)
+    if retrieved:
+        print(f"✓ Retrieved session for {retrieved.user_email}")
+    
+    # Cleanup
+    await manager.delete_session(session.session_id)
+    print("✓ Deleted test session")
+    
+    await manager.disconnect()
+
+if __name__ == "__main__":
+    asyncio.run(test_redis())
+```
+</CodeGroup>
+
+Run the test:
+
+```bash
+python test_redis.py
+```
+
+Expected output:
+```
+✓ Redis connected
+✓ Created session: xyz123...
+✓ Retrieved session for test@example.com
+✓ Deleted test session
+```
+
+## Monitoring
+
+### Redis CLI
+
+Connect to Redis and inspect data:
+
+```bash
+redis-cli
+```
+
+Useful commands:
+
+```redis
+# Select database 0 (sessions)
+SELECT 0
+
+# List all session keys
+KEYS session:*
+
+# Get session data
+GET session:xyz123...
+
+# Check TTL
+TTL session:xyz123...
+
+# Select database 1 (checkpoints)
+SELECT 1
+
+# List checkpoint keys
+KEYS *
+
+# Monitor all commands in real-time
+MONITOR
+```
+
+### Memory Usage
+
+Check Redis memory usage:
+
+```bash
+redis-cli INFO memory
+```
+
+<Warning>
+  Sessions with TTL will automatically expire, but LangGraph checkpoints in db=1 persist indefinitely. Implement cleanup for old conversations if needed.
+</Warning>
+
+## Production Considerations
+
+<Steps>
+  <Step title="Enable persistence">
+    Configure Redis to persist data to disk:
+    
+    ```bash redis.conf
+    # Enable AOF (Append Only File)
+    appendonly yes
+    appendfsync everysec
+    
+    # Enable RDB snapshots
+    save 900 1
+    save 300 10
+    save 60 10000
+    ```
+  </Step>
+
+  <Step title="Set memory limits">
+    Prevent Redis from consuming too much memory:
+    
+    ```bash redis.conf
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
+    ```
+  </Step>
+
+  <Step title="Enable authentication">
+    Secure Redis with a password:
+    
+    ```bash redis.conf
+    requirepass your-strong-password
+    ```
+    
+    Update your connection URL:
+    ```bash .env
+    REDIS_URL=redis://:your-strong-password@localhost:6379
+    ```
+  </Step>
+
+  <Step title="Use managed Redis">
+    For production, consider managed Redis services:
+    - Redis Cloud
+    - AWS ElastiCache
+    - Google Cloud Memorystore
+    - Azure Cache for Redis
+    
+    These provide automatic backups, scaling, and monitoring.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused">
+    - Verify Redis is running: `redis-cli ping`
+    - Check the connection URL in `.env`
+    - Ensure no firewall blocking port 6379
+    - For Docker: check container is running with `docker ps`
+  </Accordion>
+
+  <Accordion title="Authentication failed">
+    - Verify password in `REDIS_URL` matches Redis config
+    - Check for special characters that need URL encoding
+    - Try connecting with `redis-cli -a password`
+  </Accordion>
+
+  <Accordion title="Out of memory">
+    - Check memory usage: `redis-cli INFO memory`
+    - Increase `maxmemory` limit or enable eviction policy
+    - Clear old data: `redis-cli FLUSHDB` (careful!)
+  </Accordion>
+
+  <Accordion title="langgraph-checkpoint-redis not found">
+    - Install the checkpoint library: `uv add langgraph-checkpoint-redis`
+    - Fallback to `MemorySaver` will be used automatically if not installed
+    - Check import: `python -c "from langgraph.checkpoint.redis.aio import AsyncRedisSaver"`
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+With Redis configured, you're ready to run AgenticPal:
+
+<CardGroup cols={2}>
+  <Card title="CLI Usage" icon="terminal" href="/usage/cli">
+    Run AgenticPal from the command line
+  </Card>
+  
+  <Card title="Web API" icon="globe" href="/api-reference">
+    Deploy the web API with session persistence
+  </Card>
+</CardGroup>

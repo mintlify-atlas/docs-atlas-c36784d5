@@ -1,0 +1,318 @@
+---
+title: 'Gmail Tools'
+description: 'Gmail integration tools for reading and searching emails'
+---
+
+The Gmail tools provide read-only access to Gmail functionality, allowing the agent to list, read, search, and summarize emails.
+
+## read_emails
+
+Read/list recent emails from Gmail with optional filters.
+
+### Parameters
+
+<ParamField path="query" type="string" default="">
+  Gmail search query. Supports Gmail search operators:
+  - `from:sender@example.com` - Filter by sender
+  - `is:unread` - Only unread emails
+  - `subject:meeting` - Filter by subject
+  - `has:attachment` - Emails with attachments
+  - `label:inbox` - Filter by label
+</ParamField>
+
+<ParamField path="max_results" type="integer" default={10}>
+  Maximum number of emails to return (1-50)
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary message
+</ResponseField>
+
+<ResponseField name="messages" type="list[object]">
+  List of email messages with:
+  - `id` (string): Message ID
+  - `subject` (string): Email subject
+  - `from` (string): Sender email address
+  - `to` (string): Recipient email address
+  - `date` (string): Date sent
+  - `snippet` (string): Preview of email content
+</ResponseField>
+
+### Example
+
+```python
+# List recent emails from a specific sender
+result = await agent.read_emails(
+    query="from:boss@company.com",
+    max_results=5
+)
+
+# List unread emails with attachments
+result = await agent.read_emails(
+    query="is:unread has:attachment",
+    max_results=10
+)
+```
+
+---
+
+## get_email_details
+
+Get full details of a specific email including body content.
+
+### Parameters
+
+<ParamField path="message_id" type="string" required>
+  The unique ID of the email message
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Status message
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Message ID
+</ResponseField>
+
+<ResponseField name="subject" type="string">
+  Email subject
+</ResponseField>
+
+<ResponseField name="from" type="string">
+  Sender email address
+</ResponseField>
+
+<ResponseField name="to" type="string">
+  Recipient email address
+</ResponseField>
+
+<ResponseField name="date" type="string">
+  Date sent
+</ResponseField>
+
+<ResponseField name="snippet" type="string">
+  Email preview
+</ResponseField>
+
+<ResponseField name="body" type="string">
+  Full email body content (plain text preferred, falls back to HTML)
+</ResponseField>
+
+### Example
+
+```python
+# First, list emails to get message IDs
+emails = await agent.read_emails(query="from:important@company.com", max_results=1)
+message_id = emails["messages"][0]["id"]
+
+# Then get full details
+result = await agent.get_email_details(message_id=message_id)
+print(result["body"])  # Full email content
+```
+
+---
+
+## summarize_weekly_emails
+
+Get a summary of emails from the past week (or specified days). Shows top senders and sample subjects.
+
+### Parameters
+
+<ParamField path="days" type="integer" default={7}>
+  Number of days to look back (1-30)
+</ParamField>
+
+<ParamField path="max_results" type="integer" default={20}>
+  Maximum number of emails to include in summary (1-100)
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary description
+</ResponseField>
+
+<ResponseField name="summary" type="object">
+  Summary data containing:
+  - `period` (string): Date range covered
+  - `message_count` (int): Total number of messages
+  - `top_senders` (list): Top 5 senders with message counts
+  - `sample_subjects` (list): Up to 10 sample email subjects
+  - `messages` (list): Full message list
+</ResponseField>
+
+### Example
+
+```python
+# Get last week's email summary
+result = await agent.summarize_weekly_emails(
+    days=7,
+    max_results=50
+)
+
+print(f"Total emails: {result['summary']['message_count']}")
+print(f"Top senders: {result['summary']['top_senders']}")
+```
+
+---
+
+## search_emails
+
+Search emails using Gmail search syntax.
+
+### Parameters
+
+<ParamField path="query" type="string" required>
+  Gmail search query. Examples:
+  - `"subject:project"` - Subject contains "project"
+  - `"has:attachment"` - Has attachments
+  - `"from:boss@company.com"` - From specific sender
+  - `"after:2026/01/01"` - After specific date
+  - `"is:starred"` - Starred emails
+</ParamField>
+
+<ParamField path="max_results" type="integer" default={10}>
+  Maximum number of emails to return (1-50)
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary message
+</ResponseField>
+
+<ResponseField name="messages" type="list[object]">
+  List of matching email messages
+</ResponseField>
+
+### Example
+
+```python
+# Search for emails about a specific project
+result = await agent.search_emails(
+    query="subject:Q1-2026 has:attachment",
+    max_results=20
+)
+
+# Search for recent important emails
+result = await agent.search_emails(
+    query="is:important after:2026/03/01"
+)
+```
+
+---
+
+## list_unread_emails
+
+List unread emails from inbox.
+
+### Parameters
+
+<ParamField path="max_results" type="integer" default={10}>
+  Maximum number of unread emails to return (1-50)
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary message
+</ResponseField>
+
+<ResponseField name="messages" type="list[object]">
+  List of unread email messages
+</ResponseField>
+
+### Example
+
+```python
+# Check unread emails
+result = await agent.list_unread_emails(max_results=20)
+
+if result["success"]:
+    unread_count = len(result["messages"])
+    print(f"You have {unread_count} unread emails")
+```
+
+---
+
+## Implementation Details
+
+All Gmail tools interact with the Gmail API through the `GmailService` class located in `services/gmail.py:13-337`. The service:
+
+- Provides **read-only** access to Gmail (no send/delete/modify)
+- Handles MIME message parsing for plain text and HTML emails
+- Supports full Gmail search syntax
+- Decodes base64-encoded email bodies
+- Returns structured responses with consistent error handling
+
+### Message Body Parsing
+
+The service includes intelligent body extraction (`services/gmail.py:37-75`):
+
+1. Prioritizes plain text over HTML
+2. Handles multipart MIME messages
+3. Automatically decodes base64 content
+4. Falls back gracefully if parsing fails
+
+### Common Response Pattern
+
+All Gmail tools return a dictionary with:
+
+```python
+{
+  "success": bool,      # Operation success status
+  "message": str,       # Human-readable message
+  "error": str,         # Error details (if failed)
+  # Additional fields specific to each tool
+}
+```
+
+### Gmail Search Operators
+
+Common Gmail search operators supported:
+
+| Operator | Description | Example |
+|----------|-------------|----------|
+| `from:` | Sender email | `from:alice@company.com` |
+| `to:` | Recipient email | `to:team@company.com` |
+| `subject:` | Subject contains | `subject:meeting` |
+| `has:attachment` | Has attachments | `has:attachment` |
+| `is:unread` | Unread status | `is:unread` |
+| `is:starred` | Starred status | `is:starred` |
+| `is:important` | Important label | `is:important` |
+| `label:` | Has specific label | `label:work` |
+| `after:` | After date | `after:2026/01/01` |
+| `before:` | Before date | `before:2026/12/31` |
+| `older_than:` | Age | `older_than:7d` |
+| `newer_than:` | Age | `newer_than:2d` |
+
+### Best Practices
+
+1. **Use search queries**: Leverage Gmail's powerful search syntax to filter results
+2. **Limit results**: Keep `max_results` reasonable to avoid overwhelming the user
+3. **Get details separately**: Use `list_emails` first, then `get_email_details` only for specific emails
+4. **Weekly summaries**: Use `summarize_weekly_emails` for high-level overviews instead of listing all emails

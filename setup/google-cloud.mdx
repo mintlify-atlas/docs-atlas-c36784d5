@@ -1,0 +1,108 @@
+---
+title: Google Cloud Console Setup
+description: Configure Google Cloud Platform for AgenticPal
+---
+
+Before you can use AgenticPal, you need to enable the required Google APIs and configure OAuth consent settings in Google Cloud Console.
+
+## Prerequisites
+
+- A Google Cloud Platform account
+- A Google Workspace account (or regular Gmail account for testing)
+
+## Enable Required APIs
+
+<Steps>
+  <Step title="Create or select a project">
+    Navigate to the [Google Cloud Console](https://console.cloud.google.com/) and create a new project or select an existing one.
+  </Step>
+
+  <Step title="Enable Google Calendar API">
+    Go to **APIs & Services > Library** and search for "Google Calendar API". Click **Enable**.
+  </Step>
+
+  <Step title="Enable Gmail API">
+    Search for "Gmail API" in the library and click **Enable**.
+    
+    <Warning>
+      The Gmail API uses restricted scopes (`https://mail.google.com/`). Your app will be limited to test users unless you complete Google's verification process.
+    </Warning>
+  </Step>
+
+  <Step title="Enable Google Tasks API">
+    Search for "Google Tasks API" in the library and click **Enable**.
+  </Step>
+</Steps>
+
+## Configure OAuth Consent Screen
+
+The OAuth consent screen is what users see when authorizing AgenticPal to access their Google data.
+
+<Steps>
+  <Step title="Navigate to OAuth consent screen">
+    Go to **APIs & Services > OAuth consent screen**.
+  </Step>
+
+  <Step title="Select user type">
+    Choose **External** if you want to allow any Google account to use your app, or **Internal** if you're using Google Workspace and want to restrict access to your organization.
+    
+    For development and testing, **External** is recommended.
+  </Step>
+
+  <Step title="Configure app information">
+    Fill in the required fields:
+    - **App name**: AgenticPal (or your preferred name)
+    - **User support email**: Your email address
+    - **Developer contact information**: Your email address
+    
+    Click **Save and Continue**.
+  </Step>
+
+  <Step title="Add required scopes">
+    Click **Add or Remove Scopes** and add the following scopes:
+    
+    ```
+    https://www.googleapis.com/auth/calendar
+    https://mail.google.com/
+    https://www.googleapis.com/auth/tasks
+    ```
+    
+    These scopes provide:
+    - **Calendar**: Full access to read and write calendar events
+    - **Gmail**: Full access to read and manage emails (restricted scope)
+    - **Tasks**: Full access to read and write tasks
+    
+    <Warning>
+      These are "full access" scopes for development purposes. In production, consider using more restrictive scopes following the principle of least privilege.
+    </Warning>
+    
+    Click **Save and Continue**.
+  </Step>
+
+  <Step title="Add test users">
+    In the **Test users** section, click **Add Users** and add the email addresses that should be allowed to use the app during development.
+    
+    <Note>
+      You must add your own email address here to be able to authenticate during development.
+    </Note>
+    
+    Click **Save and Continue**, then **Back to Dashboard**.
+  </Step>
+</Steps>
+
+## Verification Status
+
+While your app is in development:
+- It will show an "unverified app" warning during OAuth consent
+- Only test users you've added can authenticate
+- You can have up to 100 test users
+
+For production use with unrestricted access, you'll need to submit your app for Google's verification review, especially for the restricted Gmail scope.
+
+## Next Steps
+
+With the APIs enabled and OAuth consent configured, you're ready to create OAuth credentials.
+
+<Card title="Create OAuth Credentials" icon="key" href="/setup/oauth">
+  Download your OAuth client credentials
+</Card>

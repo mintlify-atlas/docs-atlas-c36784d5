@@ -1,0 +1,464 @@
+---
+title: Testing
+description: Testing strategies and best practices for AgenticPal development
+---
+
+While AgenticPal doesn't currently have a formal automated test suite, this guide provides testing strategies and patterns to ensure code quality.
+
+## Testing Philosophy
+
+AgenticPal involves complex interactions between:
+- LLM calls with variable outputs
+- External API integrations (Google services)
+- Stateful graph execution
+- User confirmation flows
+
+This makes traditional unit testing challenging. Our approach emphasizes:
+1. **Integration testing** with real services
+2. **Manual testing** with diverse user inputs
+3. **Service isolation** for independent testing
+
+## Testing Layers
+
+### Service Layer Testing
+
+The service layer is the most testable component since it has clear inputs/outputs.
+
+<Steps>
+  <Step title="Set Up Test Environment">
+    Create a separate test configuration:
+
+    ```python test_services.py
+    import os
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    from services.calendar import CalendarService
+
+    def setup_test_services():
+        """Initialize services with test credentials."""
+        creds = Credentials.from_authorized_user_file('token.json')
+        
+        calendar = build('calendar', 'v3', credentials=creds)
+        calendar_service = CalendarService(calendar)
+        
+        return calendar_service
+    ```
+  </Step>
+
+  <Step title="Write Service Tests">
+    Test individual service methods:
+
+    ```python test_services.py
+    from datetime import datetime, timedelta
+
+    def test_calendar_add_event():
+        """Test adding a calendar event."""
+        service = setup_test_services()
+        
+        start = (datetime.now() + timedelta(days=1)).isoformat()
+        end = (datetime.now() + timedelta(days=1, hours=1)).isoformat()
+        
+        result = service.add_event(
+            title="Test Event",
+            start_time=start,
+            end_time=end,
+            description="Test event created by test suite",
+        )
+        
+        assert result["success"] == True
+        assert "event_id" in result
+        print(f"✓ Created event: {result['event_id']}")
+        
+        # Cleanup
+        service.delete_event(result["event_id"])
+        print("✓ Cleaned up test event")
+
+    def test_calendar_list_events():
+        """Test listing calendar events."""
+        service = setup_test_services()
+        
+        result = service.list_events(max_results=5)
+        
+        assert result["success"] == True
+        assert "events" in result
+        print(f"✓ Listed {len(result['events'])} events")
+
+    def test_calendar_error_handling():
+        """Test error handling with invalid data."""
+        service = setup_test_services()
+        
+        # Try to delete non-existent event
+        result = service.delete_event("invalid-event-id")
+        
+        assert result["success"] == False
+        assert "error" in result
+        print("✓ Error handling works correctly")
+
+    if __name__ == "__main__":
+        test_calendar_add_event()
+        test_calendar_list_events()
+        test_calendar_error_handling()
+        print("\nAll service tests passed!")
+    ```
+  </Step>
+
+  <Step title="Run Service Tests">
+    ```bash
+    python test_services.py
+    ```
+  </Step>
+</Steps>
+
+### Tool Layer Testing
+
+Test tool wrappers independently:
+
+```python test_tools.py
+from agent.tools.registry import AgentTools
+from services.calendar import CalendarService
+from services.gmail import GmailService
+from services.tasks import TasksService
+import os
+
+def setup_tools():
+    """Initialize AgentTools with real services."""
+    # Setup services (omitted for brevity)
+    calendar_service = ...
+    gmail_service = ...
+    tasks_service = ...
+    
+    return AgentTools(
+        calendar_service=calendar_service,
+        gmail_service=gmail_service,
+        tasks_service=tasks_service,
+        default_timezone="America/New_York",
+    )
+
+def test_tool_execution():
+    """Test tool execution through registry."""
+    tools = setup_tools()
+    
+    # Test with valid arguments
+    result = tools.execute_tool(
+        name="list_calendar_events",
+        arguments={"max_results": 5}
+    )
+    
+    assert result["success"] == True
+    print(f"✓ Tool execution successful")
+
+def test_tool_validation():
+    """Test parameter validation."""
+    tools = setup_tools()
+    
+    # Test with invalid arguments (missing required field)
+    result = tools.execute_tool(
+        name="add_calendar_event",
+        arguments={"title": "Test"}  # Missing start_time
+    )
+    
+    assert result["success"] == False
+    print("✓ Parameter validation works")
+
+def test_tool_discovery():
+    """Test tool registry."""
+    tools = setup_tools()
+    
+    tool_names = tools.get_tool_names()
+    assert "add_calendar_event" in tool_names
+    assert "list_tasks" in tool_names
+    assert "read_emails" in tool_names
+    
+    print(f"✓ Found {len(tool_names)} registered tools")
+
+if __name__ == "__main__":
+    test_tool_execution()
+    test_tool_validation()
+    test_tool_discovery()
+    print("\nAll tool tests passed!")
+```
+
+### Graph Node Testing
+
+Test individual nodes with mock states:
+
+```python test_nodes.py
+from agent.graph.nodes.route_execution import route_execution
+from agent.graph.nodes.confirm_actions import confirm_actions
+
+def test_route_execution_parallel():
+    """Test routing for parallel execution."""
+    state = {
+        "actions": [
+            {"id": "a1", "tool": "list_tasks", "args": {}},
+            {"id": "a2", "tool": "list_emails", "args": {}},
+        ],
+        "requires_confirmation": False,
+    }
+    
+    result = route_execution(state)
+    
+    assert result["execution_mode"] == "parallel"
+    print("✓ Parallel routing works")
+
+def test_route_execution_sequential():
+    """Test routing for sequential execution."""
+    state = {
+        "actions": [
+            {"id": "a1", "tool": "search_events", "args": {}, "depends_on": []},
+            {"id": "a2", "tool": "delete_event", "args": {}, "depends_on": ["a1"]},
+        ],
+        "requires_confirmation": False,
+    }
+    
+    result = route_execution(state)
+    
+    assert result["execution_mode"] == "sequential"
+    print("✓ Sequential routing works")
+
+def test_confirmation_required():
+    """Test confirmation logic."""
+    state = {
+        "actions": [
+            {"id": "a1", "tool": "delete_task", "args": {"task_id": "123"}},
+        ],
+    }
+    
+    result = confirm_actions(state)
+    
+    assert "confirmation_message" in result
+    assert result["pending_confirmation"] is not None
+    print("✓ Confirmation detection works")
+
+if __name__ == "__main__":
+    test_route_execution_parallel()
+    test_route_execution_sequential()
+    test_confirmation_required()
+    print("\nAll node tests passed!")
+```
+
+## Manual Testing Checklist
+
+Use this checklist when testing changes:
+
+### Calendar Operations
+
+- [ ] Create event with relative dates ("tomorrow", "next Tuesday")
+- [ ] Create event with absolute dates ("2026-03-15")
+- [ ] Create all-day event
+- [ ] Create event with attendees
+- [ ] List upcoming events
+- [ ] Search events by keyword
+- [ ] Update event details
+- [ ] Delete event (with confirmation)
+- [ ] Handle invalid date formats gracefully
+
+### Gmail Operations
+
+- [ ] List recent emails
+- [ ] Search emails with query syntax
+- [ ] Get full email details
+- [ ] List unread emails
+- [ ] Generate weekly email summary
+- [ ] Handle empty search results
+- [ ] Handle invalid message IDs
+
+### Tasks Operations
+
+- [ ] Create task with title only
+- [ ] Create task with due date
+- [ ] Create task with notes
+- [ ] List tasks from default list
+- [ ] List tasks from specific list
+- [ ] Mark task complete
+- [ ] Mark task incomplete
+- [ ] Update task details
+- [ ] Delete task (with confirmation)
+- [ ] Get all task lists
+
+### Agent Behavior
+
+- [ ] Simple requests execute correctly
+- [ ] Multi-step requests work
+- [ ] Clarifying questions are asked when needed
+- [ ] Confirmation prompts appear for destructive operations
+- [ ] Error messages are helpful and actionable
+- [ ] Responses are natural and informative
+
+## Testing Patterns
+
+### Fixture Pattern
+
+Create reusable test data:
+
+```python
+from datetime import datetime, timedelta
+
+class TestFixtures:
+    """Reusable test data."""
+    
+    @staticmethod
+    def get_test_event():
+        """Get a test event payload."""
+        return {
+            "title": "Test Event",
+            "start_time": (datetime.now() + timedelta(days=1)).isoformat(),
+            "end_time": (datetime.now() + timedelta(days=1, hours=1)).isoformat(),
+            "description": "Test event",
+        }
+    
+    @staticmethod
+    def get_test_task():
+        """Get a test task payload."""
+        return {
+            "title": "Test Task",
+            "notes": "Test task notes",
+            "due": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z"),
+        }
+```
+
+### Cleanup Pattern
+
+Always clean up test data:
+
+```python
+def test_with_cleanup():
+    """Test with automatic cleanup."""
+    service = setup_test_services()
+    created_ids = []
+    
+    try:
+        # Create test data
+        result = service.add_event(**TestFixtures.get_test_event())
+        created_ids.append(result["event_id"])
+        
+        # Run tests
+        assert result["success"] == True
+        
+    finally:
+        # Cleanup regardless of test outcome
+        for event_id in created_ids:
+            service.delete_event(event_id)
+        print(f"✓ Cleaned up {len(created_ids)} test events")
+```
+
+### Assertion Pattern
+
+Use descriptive assertions:
+
+```python
+def test_with_descriptive_assertions():
+    result = service.list_events(max_results=5)
+    
+    # Good: Specific assertions with messages
+    assert result["success"] == True, "List events should succeed"
+    assert "events" in result, "Result should contain events list"
+    assert len(result["events"]) <= 5, "Should respect max_results limit"
+    assert all("id" in e for e in result["events"]), "All events should have IDs"
+```
+
+## Testing Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Test in Isolation" icon="vial">
+    Test each layer independently before integration testing.
+  </Card>
+  
+  <Card title="Use Test Accounts" icon="user-shield">
+    Never test with production data. Use dedicated test accounts.
+  </Card>
+  
+  <Card title="Clean Up" icon="broom">
+    Always delete test data after tests complete.
+  </Card>
+  
+  <Card title="Test Errors" icon="triangle-exclamation">
+    Verify error handling is as important as testing success cases.
+  </Card>
+</CardGroup>
+
+## Debugging Tips
+
+### Enable Verbose Logging
+
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+```
+
+### Inspect State
+
+Add state inspection in graph nodes:
+
+```python
+import json
+
+def debug_node(state: AgentState) -> AgentState:
+    """Debug node to inspect state."""
+    print("Current State:")
+    print(json.dumps(state, indent=2, default=str))
+    return state
+```
+
+### Test Individual Components
+
+Test components in isolation:
+
+```python
+# Test date parsing
+from agent.date_utils import parse_datetime
+
+parsed, is_all_day = parse_datetime("next Tuesday 3pm", "America/New_York")
+print(f"Parsed: {parsed}, All day: {is_all_day}")
+
+# Test tool discovery
+from agent.tools.tool_definitions import get_tools_for_categories
+
+tools = get_tools_for_categories(["calendar"])
+print(f"Calendar tools: {tools}")
+```
+
+## Performance Testing
+
+Monitor execution time for expensive operations:
+
+```python
+import time
+
+def test_performance():
+    """Test operation performance."""
+    start = time.time()
+    
+    result = service.list_events(max_results=100)
+    
+    elapsed = time.time() - start
+    
+    assert elapsed < 5.0, f"List events took {elapsed:.2f}s (should be < 5s)"
+    print(f"✓ Performance acceptable: {elapsed:.2f}s")
+```
+
+## Future Testing Plans
+
+Planned improvements to the testing infrastructure:
+
+1. **Pytest Suite** - Migrate to pytest for better organization
+2. **Mock Services** - Add mock implementations for faster tests
+3. **CI/CD Integration** - Run tests automatically on commits
+4. **Coverage Reports** - Track code coverage metrics
+5. **LLM Testing** - Strategies for testing LLM interactions
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Contribution guidelines and workflow
+  </Card>
+  
+  <Card title="Custom Tools" icon="wrench" href="/development/custom-tools">
+    How to add and test new tools
+  </Card>
+</CardGroup>

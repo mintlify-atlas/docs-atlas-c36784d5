@@ -1,0 +1,363 @@
+---
+title: Contributing Guidelines
+description: How to contribute to AgenticPal development
+---
+
+Thank you for your interest in contributing to AgenticPal! This guide will help you get started.
+
+## Development Setup
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/yourusername/agenticpal.git
+    cd agenticpal
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    AgenticPal uses `uv` for dependency management:
+
+    ```bash
+    uv sync
+    ```
+
+    This will install all required dependencies including:
+    - `google-api-python-client` - Google API access
+    - `google-auth-oauthlib` - OAuth 2.0 authentication
+    - `langchain-qwq` - LLM integration
+    - `pydantic` - Schema validation
+    - `python-dateutil` - Date parsing
+  </Step>
+
+  <Step title="Configure Google Cloud">
+    1. Create a project in [Google Cloud Console](https://console.cloud.google.com)
+    2. Enable the following APIs:
+       - Google Calendar API
+       - Gmail API
+       - Google Tasks API
+    3. Create OAuth 2.0 credentials:
+       - Application type: Desktop application
+       - Download credentials as `credentials.json`
+       - Place in project root
+    4. Add your email as a test user on the OAuth consent screen
+  </Step>
+
+  <Step title="Run the Application">
+    ```bash
+    python main.py
+    ```
+
+    On first run, you'll be prompted to authenticate via browser. The token is cached in `token.json` for future sessions.
+  </Step>
+</Steps>
+
+## Project Structure
+
+```
+agenticpal/
+├── agent/
+│   ├── graph/
+│   │   └── nodes/          # Graph execution nodes
+│   ├── tools/
+│   │   ├── tool_definitions.py  # Tool metadata and schemas
+│   │   ├── registry.py          # Tool wrappers
+│   │   └── meta_tools.py        # Meta-tool system
+│   ├── prompts/            # LLM prompts and DSPy modules
+│   ├── schemas.py          # Pydantic parameter models
+│   └── state.py            # Agent state definition
+├── services/
+│   ├── calendar.py         # Google Calendar integration
+│   ├── gmail.py            # Gmail integration
+│   └── tasks.py            # Google Tasks integration
+├── auth/                   # Authentication handlers
+├── main.py                 # Entry point
+└── README.md
+```
+
+## Development Workflow
+
+### Adding Features
+
+Follow the three-layer architecture:
+
+1. **Service Layer** - Add API integration in `services/`
+2. **Tool Layer** - Create tool wrapper in `agent/tools/registry.py`
+3. **Definition Layer** - Register in `agent/tools/tool_definitions.py`
+
+See the [Custom Tools](/development/custom-tools) guide for detailed instructions.
+
+### Making Changes
+
+<Steps>
+  <Step title="Create a Branch">
+    ```bash
+    git checkout -b feature/your-feature-name
+    ```
+  </Step>
+
+  <Step title="Make Your Changes">
+    Follow the existing code style and patterns:
+    - Use type hints for all function parameters and returns
+    - Add docstrings to all public functions
+    - Follow PEP 8 style guidelines
+    - Keep functions focused and single-purpose
+  </Step>
+
+  <Step title="Test Your Changes">
+    Test your changes thoroughly:
+    ```bash
+    python main.py
+    ```
+
+    Try various user inputs that exercise your new functionality.
+  </Step>
+
+  <Step title="Commit Your Changes">
+    ```bash
+    git add .
+    git commit -m "feat: add support for XYZ"
+    ```
+
+    Use conventional commit messages:
+    - `feat:` - New feature
+    - `fix:` - Bug fix
+    - `docs:` - Documentation changes
+    - `refactor:` - Code refactoring
+    - `test:` - Adding tests
+    - `chore:` - Maintenance tasks
+  </Step>
+
+  <Step title="Push and Create PR">
+    ```bash
+    git push origin feature/your-feature-name
+    ```
+
+    Then create a Pull Request on GitHub with:
+    - Clear description of changes
+    - Screenshots/examples if applicable
+    - Reference to any related issues
+  </Step>
+</Steps>
+
+## Code Style
+
+### Python Style
+
+- Follow PEP 8
+- Use 4 spaces for indentation
+- Maximum line length: 100 characters
+- Use type hints:
+
+```python
+def add_calendar_event(
+    self,
+    title: str,
+    start_time: str,
+    end_time: Optional[str] = None,
+) -> dict:
+    """Add a calendar event with type hints."""
+    ...
+```
+
+### Docstring Format
+
+Use Google-style docstrings:
+
+```python
+def search_events(self, query: str, max_results: int = 5) -> dict:
+    """
+    Search for events by title.
+
+    Args:
+        query: Search term to match in event titles
+        max_results: Maximum number of results to return
+
+    Returns:
+        Dict with success status and matching events list
+    """
+    ...
+```
+
+### Error Handling
+
+Always return structured error responses:
+
+```python
+try:
+    result = api_call()
+    return {
+        "success": True,
+        "message": "Operation completed.",
+        "data": result,
+    }
+except SpecificError as error:
+    return {
+        "success": False,
+        "message": f"Failed: {error}",
+        "error": str(error),
+    }
+```
+
+## Testing Guidelines
+
+While AgenticPal doesn't currently have a formal test suite, you should:
+
+1. **Manual Testing** - Test all code paths with various inputs
+2. **Edge Cases** - Test boundary conditions and error scenarios
+3. **Integration Testing** - Test with real Google APIs
+4. **Regression Testing** - Ensure existing features still work
+
+### Example Test Scenarios
+
+**Calendar Tool:**
+- Create event with valid data
+- Create event with invalid date format
+- Create event with missing required fields
+- Update non-existent event
+- Delete event with confirmation
+
+**Gmail Tool:**
+- List messages with no results
+- Search with complex query syntax
+- Get details of non-existent message
+
+## Pull Request Guidelines
+
+### PR Checklist
+
+- [ ] Code follows project style guidelines
+- [ ] All functions have docstrings and type hints
+- [ ] Changes have been manually tested
+- [ ] Existing functionality still works
+- [ ] Commit messages follow conventional format
+- [ ] PR description is clear and complete
+
+### PR Description Template
+
+```markdown
+## Description
+Brief description of what this PR does.
+
+## Changes
+- List of specific changes made
+- Another change
+
+## Testing
+How the changes were tested:
+1. Step 1
+2. Step 2
+
+## Screenshots (if applicable)
+[Add screenshots here]
+
+## Related Issues
+Fixes #123
+Relates to #456
+```
+
+## Architecture Guidelines
+
+### Separation of Concerns
+
+Maintain clean boundaries between layers:
+
+```python
+# ❌ Bad: Tool calling service directly
+def list_emails_tool(query: str):
+    service = build('gmail', 'v1', credentials=creds)
+    return service.users().messages().list(...).execute()
+
+# ✅ Good: Tool using service abstraction
+def list_emails_tool(query: str) -> dict:
+    return self.gmail.list_messages(query=query)
+```
+
+### Return Value Consistency
+
+All service and tool methods return dicts with consistent structure:
+
+```python
+{
+    "success": bool,
+    "message": str,      # Human-readable message
+    "data": ...,         # Actual result data
+    "error": str | None, # Error details if failed
+}
+```
+
+### Configuration Management
+
+Use environment variables for configuration:
+
+```python
+import os
+
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
+TIMEZONE = os.getenv("TIMEZONE", "UTC")
+```
+
+## Common Patterns
+
+### Date/Time Handling
+
+Use the date utilities:
+
+```python
+from agent.date_utils import parse_datetime, calculate_end_time
+
+parsed_start, is_all_day = parse_datetime("next Tuesday", timezone="UTC")
+end_time = calculate_end_time(parsed_start, "1 hour")
+```
+
+### Tool Parameter Validation
+
+Use Pydantic schemas:
+
+```python
+from pydantic import BaseModel, Field, validator
+
+class CreateEventParams(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    start_time: str
+    
+    @validator('start_time')
+    def validate_time(cls, v):
+        # Custom validation logic
+        return v
+```
+
+## Getting Help
+
+- **Questions:** Open a [GitHub Discussion](https://github.com/yourusername/agenticpal/discussions)
+- **Bugs:** File a [GitHub Issue](https://github.com/yourusername/agenticpal/issues)
+- **Features:** Start with a discussion to get feedback before implementing
+
+## Recognition
+
+Contributors will be:
+- Added to the project README
+- Credited in release notes
+- Mentioned in documentation for significant contributions
+
+Thank you for contributing to AgenticPal!
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Custom Tools" icon="wrench" href="/development/custom-tools">
+    Guide to adding new tools
+  </Card>
+  
+  <Card title="Service Integration" icon="puzzle-piece" href="/development/service-integration">
+    How to integrate new services
+  </Card>
+  
+  <Card title="Graph Nodes" icon="diagram-project" href="/development/graph-nodes">
+    Creating custom graph nodes
+  </Card>
+  
+  <Card title="Testing" icon="flask" href="/development/testing">
+    Testing guidelines
+  </Card>
+</CardGroup>

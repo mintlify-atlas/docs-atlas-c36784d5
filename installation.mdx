@@ -1,0 +1,659 @@
+---
+title: Installation
+description: Complete installation guide for development and production environments
+---
+
+## System Requirements
+
+<CardGroup cols={2}>
+  <Card title="Python Version" icon="python">
+    Python 3.12 or higher required
+  </Card>
+  <Card title="Operating System" icon="computer">
+    macOS, Linux, or Windows (WSL2 recommended)
+  </Card>
+  <Card title="Memory" icon="memory">
+    Minimum 2GB RAM available
+  </Card>
+  <Card title="Storage" icon="hard-drive">
+    ~500MB for dependencies
+  </Card>
+</CardGroup>
+
+<Warning>
+  **Python 3.12+** is strictly required. AgenticPal uses modern Python features like `match` statements and type unions that don't work on older versions.
+</Warning>
+
+## Installation Methods
+
+### Using uv (Recommended)
+
+`uv` is a blazing-fast Python package installer and resolver written in Rust. It's 10-100x faster than pip.
+
+<Steps>
+  <Step title="Install uv">
+    <CodeGroup>
+    ```bash macOS/Linux
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+    
+    ```bash Windows (PowerShell)
+    powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+    ```
+    
+    ```bash Homebrew
+    brew install uv
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/your-org/agentic-pal.git
+    cd agentic-pal
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    ```bash
+    uv sync
+    ```
+    
+    This installs all dependencies from `pyproject.toml` in a virtual environment.
+    
+    <Note>
+      `uv sync` automatically creates and activates a virtual environment in `.venv/`
+    </Note>
+  </Step>
+  
+  <Step title="Verify installation">
+    ```bash
+    # Check Python version
+    python --version
+    # Should output: Python 3.12.x or higher
+    
+    # Verify core dependencies
+    python -c "import langchain_qwq; import langgraph; print('✓ Installation successful')"
+    ```
+  </Step>
+</Steps>
+
+### Using pip
+
+If you prefer traditional pip:
+
+<Steps>
+  <Step title="Create virtual environment">
+    ```bash
+    python3.12 -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+  </Step>
+  
+  <Step title="Install from source">
+    ```bash
+    pip install -e .
+    ```
+    
+    The `-e` flag installs in editable mode, useful for development.
+  </Step>
+</Steps>
+
+### Development Installation
+
+For contributors and developers:
+
+```bash
+# Install with dev dependencies (pytest, type checkers, etc.)
+uv sync --extra dev
+
+# Or with pip
+pip install -e ".[dev]"
+```
+
+## Google Cloud Setup
+
+AgenticPal requires OAuth 2.0 credentials to access Google Workspace APIs.
+
+### Create a Google Cloud Project
+
+<Steps>
+  <Step title="Create project">
+    1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+    2. Click **Select a project → New Project**
+    3. Name it "AgenticPal" (or your preferred name)
+    4. Click **Create**
+    
+    <Info>
+      You can use an existing project if you prefer. Free tier is sufficient for personal use.
+    </Info>
+  </Step>
+  
+  <Step title="Enable Required APIs">
+    Navigate to **APIs & Services → Library** and enable:
+    
+    <Tabs>
+      <Tab title="Google Calendar API">
+        Search for "Google Calendar API" and click **Enable**
+        
+        Or use direct link: [Enable Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
+      </Tab>
+      
+      <Tab title="Gmail API">
+        Search for "Gmail API" and click **Enable**
+        
+        Or use direct link: [Enable Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com)
+      </Tab>
+      
+      <Tab title="Google Tasks API">
+        Search for "Tasks API" and click **Enable**
+        
+        Or use direct link: [Enable Tasks API](https://console.cloud.google.com/apis/library/tasks.googleapis.com)
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="Configure OAuth Consent Screen">
+    1. Go to **APIs & Services → OAuth consent screen**
+    2. Choose **External** as user type (unless you have Google Workspace)
+    3. Fill in required fields:
+       - **App name**: AgenticPal
+       - **User support email**: Your email
+       - **Developer contact**: Your email
+    4. Click **Save and Continue**
+    5. Skip the Scopes section (click **Save and Continue**)
+    6. Under **Test users**, click **+ ADD USERS**
+    7. Add your Gmail address
+    8. Click **Save and Continue**
+    
+    <Warning>
+      **Critical**: You MUST add your email as a test user, or OAuth will fail with a 403 error.
+    </Warning>
+  </Step>
+  
+  <Step title="Create OAuth Client ID">
+    1. Go to **APIs & Services → Credentials**
+    2. Click **+ CREATE CREDENTIALS**
+    3. Select **OAuth client ID**
+    4. Choose **Application type: Desktop app**
+    5. Name it "AgenticPal Local Client"
+    6. Click **Create**
+    7. Click **OK** on the confirmation dialog
+  </Step>
+  
+  <Step title="Download Credentials">
+    1. Find your new OAuth 2.0 Client ID in the list
+    2. Click the download icon (⬇️) on the right
+    3. Save the JSON file as `credentials.json`
+    4. Move it to your AgenticPal project root:
+    
+    ```bash
+    # Your project structure should look like:
+    agentic-pal/
+    ├── credentials.json  ← OAuth credentials here
+    ├── main.py
+    ├── pyproject.toml
+    ├── agent/
+    ├── services/
+    └── ...
+    ```
+    
+    <Note>
+      `credentials.json` is already in `.gitignore` to prevent accidental commits.
+    </Note>
+  </Step>
+</Steps>
+
+### Understanding OAuth Scopes
+
+AgenticPal requests these OAuth scopes defined in `auth.py:10-14`:
+
+```python auth.py
+DEFAULT_SCOPES = (
+    "https://www.googleapis.com/auth/calendar",        # Full Calendar access
+    "https://mail.google.com/",                        # Full Gmail access
+    "https://www.googleapis.com/auth/tasks",           # Full Tasks access
+)
+```
+
+<Warning>
+  **Security Note**: These are **full access** scopes suitable for personal use. For production applications, use least-privilege scopes:
+  
+  - Calendar: `calendar.events` (read/write events only)
+  - Gmail: `gmail.readonly` or `gmail.modify` (not full access)
+  - Tasks: `tasks` (same, but be aware of permissions)
+</Warning>
+
+## Environment Configuration
+
+### Required Environment Variables
+
+<Steps>
+  <Step title="LLM API Key">
+    AgenticPal uses Alibaba Cloud's Qwen model by default:
+    
+    ```bash .env
+    DASHSCOPE_API_KEY=sk-your-dashscope-key-here
+    ```
+    
+    Get your key from [DashScope Console](https://dashscope.console.aliyun.com/).
+    
+    <Accordion title="Using OpenAI instead?">
+      To use OpenAI models, set:
+      
+      ```bash .env
+      OPENAI_API_KEY=sk-your-openai-key
+      ```
+      
+      Then modify `main.py:34`:
+      
+      ```python main.py
+      graph, tools_registry = create_graph_runner(
+          # ... other params
+          model_name="gpt-4o",  # or "gpt-4-turbo"
+      )
+      ```
+    </Accordion>
+    
+    <Accordion title="Using Anthropic Claude?">
+      ```bash .env
+      ANTHROPIC_API_KEY=sk-ant-your-key
+      ```
+      
+      Modify `main.py` to import and use `ChatAnthropic`:
+      
+      ```python main.py
+      from langchain_anthropic import ChatAnthropic
+      
+      # In create_graph_runner call:
+      model_name="claude-3-5-sonnet-20241022"
+      ```
+    </Accordion>
+  </Step>
+  
+  <Step title="Optional: Redis for Web API">
+    If deploying the FastAPI backend, configure Redis:
+    
+    ```bash .env
+    REDIS_HOST=localhost
+    REDIS_PORT=6379
+    REDIS_DB=0
+    # Optional: REDIS_PASSWORD=your-password
+    ```
+    
+    <Note>
+      Redis is only needed for the web API (`api.main:app`). The CLI (`main.py`) doesn't require it.
+    </Note>
+  </Step>
+  
+  <Step title="Optional: Web API Settings">
+    Configure the FastAPI server:
+    
+    ```bash .env
+    # Server
+    HOST=0.0.0.0
+    PORT=8000
+    ENVIRONMENT=production  # or "development"
+    
+    # CORS (comma-separated origins)
+    CORS_ORIGINS=https://app.example.com,https://admin.example.com
+    
+    # Rate limiting
+    RATE_LIMIT=60/minute  # Format: <count>/<minute|hour|day>
+    ```
+  </Step>
+</Steps>
+
+### Load Environment Variables
+
+<CodeGroup>
+```bash macOS/Linux
+# Option 1: Export in shell
+export DASHSCOPE_API_KEY="your-key"
+export REDIS_HOST="localhost"
+
+# Option 2: Load from .env file
+source .env  # If using direnv
+
+# Option 3: Use python-dotenv
+pip install python-dotenv
+# Add to main.py: from dotenv import load_dotenv; load_dotenv()
+```
+
+```bash Windows (PowerShell)
+# Set environment variables
+$env:DASHSCOPE_API_KEY="your-key"
+$env:REDIS_HOST="localhost"
+```
+
+```python .env File
+# Create .env in project root
+DASHSCOPE_API_KEY=sk-xxx
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+</CodeGroup>
+
+## First Authentication
+
+Run AgenticPal to trigger the OAuth flow:
+
+```bash
+python main.py
+```
+
+### What Happens
+
+<Steps>
+  <Step title="OAuth flow starts">
+    AgenticPal reads `credentials.json` and starts the OAuth flow (code in `auth.py:49`):
+    
+    ```python auth.py
+    flow = InstalledAppFlow.from_client_secrets_file(str(credentials_file), scope_list)
+    creds = flow.run_local_server(port=0, prompt="consent")
+    ```
+  </Step>
+  
+  <Step title="Browser opens automatically">
+    Your default browser opens to Google's consent screen
+  </Step>
+  
+  <Step title="Sign in and authorize">
+    1. Sign in with the account you added as a test user
+    2. Review the permissions
+    3. Click **Continue** or **Allow**
+  </Step>
+  
+  <Step title="Token cached">
+    AgenticPal saves the access token to `token.json`:
+    
+    ```python auth.py
+    token_file.write_text(creds.to_json())
+    ```
+    
+    ```bash Terminal output
+    AgenticPal - Your AI Personal Assistant
+    Type 'exit', 'quit', or 'q' to exit
+    Mode: Legacy
+    --------------------------------------------------
+    
+    You: _
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  **Token Persistence**: `token.json` caches your credentials. Subsequent runs won't require browser authentication unless the token expires (typically after 7 days).
+</Info>
+
+### Token Refresh
+
+AgenticPal automatically refreshes expired tokens (see `auth.py:37-41`):
+
+```python auth.py
+if creds and creds.expired and creds.refresh_token:
+    try:
+        creds.refresh(Request())
+    except Exception:
+        creds = None  # Fall back to full flow if refresh fails
+```
+
+## Verify Installation
+
+Test that everything is working:
+
+```bash
+python main.py
+```
+
+```text Output
+AgenticPal - Your AI Personal Assistant
+Type 'exit', 'quit', or 'q' to exit
+Mode: Legacy
+--------------------------------------------------
+
+You: list my calendar events
+
+  Assistant: You have 3 upcoming events:
+  1. Team Standup - Mar 9, 2026 at 9:00 AM
+  2. Lunch with Sarah - Mar 9, 2026 at 12:00 PM
+  3. Q1 Planning - Mar 10, 2026 at 2:00 PM
+```
+
+<Note>
+  If you see a response, congratulations! AgenticPal is fully installed and authenticated.
+</Note>
+
+## Running the Web API
+
+### Install Redis
+
+The FastAPI backend requires Redis for session management:
+
+<CodeGroup>
+```bash macOS
+brew install redis
+brew services start redis
+```
+
+```bash Ubuntu/Debian
+sudo apt update
+sudo apt install redis-server
+sudo systemctl start redis
+```
+
+```bash Docker
+docker run -d -p 6379:6379 redis:7-alpine
+```
+</CodeGroup>
+
+### Start the API Server
+
+<CodeGroup>
+```bash Development
+# With auto-reload on file changes
+uvicorn api.main:app --reload --port 8000
+
+# Output:
+# INFO:     Uvicorn running on http://127.0.0.1:8000
+# INFO:     🚀 Agentic-PAL API v0.1.0 started
+# INFO:     📡 Redis connected: True
+```
+
+```bash Production
+# Multiple workers for high throughput
+uvicorn api.main:app \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --workers 4 \
+  --log-level info
+```
+</CodeGroup>
+
+### Test the API
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Response:
+{
+  "status": "healthy",
+  "version": "0.1.0",
+  "redis_connected": true,
+  "timestamp": "2026-03-08T15:30:00.123456"
+}
+```
+
+```bash
+# Interactive API docs
+open http://localhost:8000/docs
+```
+
+<Card title="API Reference" icon="book" href="/api-reference">
+  See the complete API documentation with examples
+</Card>
+
+## Production Deployment
+
+### Using Docker
+
+Create a `Dockerfile`:
+
+```dockerfile Dockerfile
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install uv
+RUN pip install uv
+
+# Copy project files
+COPY pyproject.toml .
+COPY . .
+
+# Install dependencies
+RUN uv sync --no-dev
+
+# Expose API port
+EXPOSE 8000
+
+# Run API server
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+```bash
+# Build and run
+docker build -t agentic-pal .
+docker run -p 8000:8000 \
+  -e DASHSCOPE_API_KEY=$DASHSCOPE_API_KEY \
+  -e REDIS_HOST=redis \
+  agentic-pal
+```
+
+### Using Docker Compose
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+  
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+```
+
+```bash
+# Start services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="ModuleNotFoundError: No module named 'langchain_qwq'">
+    Dependencies weren't installed correctly. Try:
+    
+    ```bash
+    uv sync --force
+    # Or with pip:
+    pip install -e . --force-reinstall
+    ```
+  </Accordion>
+  
+  <Accordion title="Python version too old">
+    Check your Python version:
+    
+    ```bash
+    python --version
+    ```
+    
+    If < 3.12, install a newer version:
+    
+    ```bash
+    # Using pyenv
+    pyenv install 3.12.2
+    pyenv local 3.12.2
+    
+    # Verify
+    python --version
+    ```
+  </Accordion>
+  
+  <Accordion title="OAuth error: redirect_uri_mismatch">
+    This happens when Google's redirect URI doesn't match. For desktop apps:
+    
+    1. Verify you selected **Desktop app** (not Web application)
+    2. Delete and recreate the OAuth client ID
+    3. Download fresh `credentials.json`
+  </Accordion>
+  
+  <Accordion title="Redis connection failed">
+    Verify Redis is running:
+    
+    ```bash
+    redis-cli ping
+    # Should output: PONG
+    ```
+    
+    If not running:
+    
+    ```bash
+    # macOS
+    brew services start redis
+    
+    # Linux
+    sudo systemctl start redis
+    
+    # Docker
+    docker start redis
+    ```
+  </Accordion>
+  
+  <Accordion title="Rate limit errors from LLM provider">
+    If you see rate limit errors:
+    
+    1. Check your API quota/credits
+    2. Add retry logic (already included in LangChain)
+    3. Consider upgrading your API plan
+    4. Use a local model like Ollama for testing
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Customize prompts, timezones, and agent behavior
+  </Card>
+  <Card title="Development" icon="code" href="/development">
+    Learn how to add custom tools and extend AgenticPal
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment">
+    Deploy to cloud platforms (AWS, GCP, Azure)
+  </Card>
+  <Card title="API Reference" icon="book" href="/api-reference">
+    Complete REST API documentation
+  </Card>
+</CardGroup>

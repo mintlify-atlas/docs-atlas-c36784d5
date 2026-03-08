@@ -1,0 +1,348 @@
+---
+title: Email Management
+description: Read, search, and summarize emails from your Gmail inbox
+---
+
+AgenticPal provides read-only Gmail integration for email management. Access and analyze your inbox using natural language queries.
+
+<Note>
+Currently, AgenticPal only supports **reading** emails. Sending, replying, and modifying emails are not yet supported.
+</Note>
+
+## Available Operations
+
+### List Messages
+
+Retrieve recent messages with optional filtering:
+
+```python
+# Natural language examples
+"Show me my recent emails"
+"List my inbox messages"
+"What emails did I receive today?"
+```
+
+**Tool**: `read_emails`
+
+**Parameters**:
+- `query` (optional): Gmail search query syntax
+- `max_results` (optional): Maximum messages to return (default: 10)
+
+**Gmail Query Syntax**:
+- `from:sender@example.com` - From specific sender
+- `to:recipient@example.com` - To specific recipient
+- `subject:meeting` - Contains keyword in subject
+- `is:unread` - Only unread messages
+- `is:starred` - Only starred messages
+- `has:attachment` - Has attachments
+- `before:2026-03-10` - Before specific date
+- `after:2026-03-01` - After specific date
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "message": "Found 5 message(s).",
+  "messages": [
+    {
+      "id": "msg_abc123",
+      "subject": "Project Update",
+      "from": "Sarah Johnson <sarah@example.com>",
+      "to": "me@example.com",
+      "date": "Mon, 10 Mar 2026 14:30:00 -0500",
+      "snippet": "Here's the latest status on the project..."
+    }
+  ]
+}
+```
+
+### Get Message Details
+
+Retrieve full email content including body:
+
+```python
+"Read the email from Sarah"
+"Show me the full content of the project update email"
+"What does the message say?"
+```
+
+**Tool**: `get_email_details`
+
+**Parameters**:
+- `message_id` (required): Gmail message ID
+
+**Response Includes**:
+- Subject, from, to, date headers
+- Full message body (plain text preferred over HTML)
+- Message snippet
+
+### Search Messages
+
+Find emails using Gmail search syntax:
+
+```python
+"Search for emails from my boss"
+"Find messages with 'invoice' in the subject"
+"Show me emails with attachments from last week"
+```
+
+**Tool**: `search_emails`
+
+**Parameters**:
+- `query` (required): Gmail search query
+- `max_results` (optional): Maximum results (default: 10)
+
+Examples:
+```python
+# Search by sender
+query="from:boss@company.com"
+
+# Search by subject keyword
+query="subject:meeting"
+
+# Complex query
+query="from:client@example.com has:attachment after:2026-03-01"
+```
+
+### List Unread Messages
+
+Quickly access unread emails:
+
+```python
+"Show me my unread emails"
+"What messages haven't I read yet?"
+"List unread messages"
+```
+
+**Tool**: `list_unread_emails`
+
+**Parameters**:
+- `max_results` (optional): Maximum messages (default: 10)
+
+Equivalent to `read_emails(query="is:unread")`.
+
+### List Messages by Label
+
+Filter by Gmail label:
+
+```python
+"Show me emails in my INBOX"
+"List starred messages"
+"What's in my Important folder?"
+```
+
+Supported via the `read_emails` tool with label queries:
+```python
+query="label:INBOX"      # Inbox messages
+query="label:STARRED"    # Starred messages
+query="label:IMPORTANT"  # Important messages
+query="label:SENT"       # Sent messages
+```
+
+### Weekly Email Summary
+
+Get aggregated statistics from recent emails:
+
+```python
+"Summarize my emails from this week"
+"Who sent me the most emails recently?"
+"Give me a weekly email summary"
+```
+
+**Tool**: `summarize_weekly_emails`
+
+**Parameters**:
+- `days` (optional): Number of days to look back (default: 7)
+- `max_results` (optional): Maximum messages to analyze (default: 20)
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "message": "Weekly summary from past 7 days.",
+  "summary": {
+    "period": "Past 7 days (2026/03/01 to 2026/03/08)",
+    "message_count": 45,
+    "top_senders": [
+      ["Sarah Johnson", 12],
+      ["John Smith", 8],
+      ["Team Notifications", 6]
+    ],
+    "sample_subjects": [
+      "Project Update",
+      "Meeting Notes",
+      "Q1 Planning"
+    ],
+    "messages": []
+  }
+}
+```
+
+## Message Body Parsing
+
+The Gmail service intelligently extracts message content:
+
+### MIME Type Handling
+
+```python
+class GmailService:
+    def _get_message_body(self, message: dict) -> str:
+        """Extract plain text body from email message.
+        Prioritizes plain text over HTML."""
+```
+
+The parser:
+1. Checks for simple (non-multipart) text messages
+2. For multipart messages, searches for `text/plain` MIME parts
+3. Falls back to `text/html` if no plain text available
+4. Decodes base64-encoded content
+5. Handles nested MIME structures
+
+### Encoding
+
+Email bodies are base64 URL-safe encoded in Gmail API responses:
+
+```python
+def _decode_message_part(self, part: dict) -> str:
+    """Decode email body from base64-encoded MIME part."""
+    try:
+        if "data" in part:
+            return base64.urlsafe_b64decode(part["data"]).decode("utf-8")
+    except Exception:
+        pass
+    return ""
+```
+
+## Implementation Details
+
+Email operations are handled by `services/gmail.py:GmailService`:
+
+```python
+class GmailService:
+    def __init__(self, service):
+        """Initialize with authenticated Gmail service."""
+        self.service = service
+```
+
+All methods follow the standard response format:
+- `success`: Boolean status
+- `message`: Human-readable message
+- `messages`: List of message objects
+- `error`: Error details on failure
+
+## Common Use Cases
+
+### Daily Inbox Check
+```python
+User: "Show me my unread emails"
+Agent: "You have 5 unread messages:
+1. 'Project Update' from Sarah
+2. 'Meeting Request' from John
+..."
+```
+
+### Find Specific Email
+```python
+User: "Find the email from my boss about the budget"
+Agent: [Searches: from:boss@company.com subject:budget]
+"Found 1 message: 'Q2 Budget Review' from yesterday."
+
+User: "Read it"
+Agent: [Retrieves full message body]
+"The email says: 'Hi team, please review the attached budget...'"
+```
+
+### Weekly Review
+```python
+User: "Summarize my emails from this week"
+Agent: "You received 45 emails in the past 7 days.
+Top senders:
+- Sarah Johnson (12 emails)
+- John Smith (8 emails)
+- Notifications (6 emails)
+
+Common subjects: Project Update, Meeting Notes, Planning"
+```
+
+### Search with Complex Filters
+```python
+User: "Show me emails with attachments from Sarah after March 1st"
+Agent: [Query: from:sarah@example.com has:attachment after:2026/03/01]
+"Found 3 messages matching your criteria."
+```
+
+## Error Handling
+
+The service handles various error conditions:
+
+```python
+try:
+    result = gmail_service.get_message_full(message_id="invalid_id")
+except HttpError as error:
+    if error.resp.status == 404:
+        return {
+            "success": False,
+            "message": f"Message '{message_id}' not found.",
+            "error": str(error)
+        }
+```
+
+Common errors:
+- **404**: Message not found
+- **403**: Insufficient permissions
+- **401**: Authentication failed (token expired)
+- **400**: Invalid query syntax
+
+## Query Best Practices
+
+### Efficient Searches
+
+**Good**: Specific queries with filters
+```python
+"from:sarah@example.com after:2026-03-01 subject:project"
+```
+
+**Avoid**: Overly broad searches
+```python
+"subject:the"  # Matches too many messages
+```
+
+### Date Ranges
+
+Use relative dates for dynamic queries:
+```python
+"after:2026/03/01 before:2026/03/08"  # Specific week
+```
+
+### Combining Filters
+
+Chain multiple criteria:
+```python
+"from:client@example.com has:attachment is:unread"
+```
+
+## Limitations
+
+<Warning>
+**Read-Only Access**: AgenticPal cannot:
+- Send new emails
+- Reply to messages
+- Forward emails
+- Modify labels or categories
+- Mark as read/unread
+- Move to trash
+- Archive messages
+
+These features may be added in future versions.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tasks" icon="check-square" href="/features/tasks">
+    Manage your Google Tasks todo list
+  </Card>
+  <Card title="Natural Language" icon="comments" href="/features/natural-language">
+    Learn how queries are parsed
+  </Card>
+</CardGroup>

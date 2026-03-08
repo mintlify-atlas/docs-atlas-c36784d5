@@ -1,0 +1,225 @@
+---
+title: "CLI Usage"
+description: "Interactive command-line interface examples for AgenticPal"
+---
+
+## Overview
+
+The CLI provides an interactive REPL (Read-Eval-Print Loop) interface for natural language interactions with your Google Workspace services. It supports both Legacy and DSPy prompt modes.
+
+## Starting the CLI
+
+<Steps>
+<Step title="Run the main script">
+
+```bash
+python main.py
+```
+
+You'll see the welcome message:
+
+```
+AgenticPal - Your AI Personal Assistant
+Type 'exit', 'quit', or 'q' to exit
+Mode: Legacy
+--------------------------------------------------
+
+You: 
+```
+
+</Step>
+
+<Step title="Enter your request">
+
+Type your request in natural language and press Enter.
+
+</Step>
+</Steps>
+
+## Configuration Options
+
+Before running, you can configure the prompt mode in `main.py`:
+
+<CodeGroup>
+
+```python Legacy Mode (Recommended)
+# Use traditional LangChain prompts - more stable
+use_legacy()
+```
+
+```python DSPy Mode (Experimental)
+# Use structured prompts with DSPy
+PromptConfig.configure_dspy(
+    model="mistral/mistral-large-latest",
+    api_key=os.environ.get("MISTRAL_API_KEY"),
+)
+```
+
+</CodeGroup>
+
+## Example Interactions
+
+### Calendar Management
+
+<AccordionGroup>
+  <Accordion title="Create a meeting">
+    ```
+    You: Add a meeting with John next Tuesday at 2pm
+    
+    Assistant: I've created a new event "Meeting with John" on Tuesday, March 11, 2026 at 2:00 PM.
+    ```
+  </Accordion>
+
+  <Accordion title="Check upcoming events">
+    ```
+    You: What's on my calendar this week?
+    
+    Assistant: You have 3 events this week:
+    1. Team Standup - Monday at 9:00 AM
+    2. Meeting with John - Tuesday at 2:00 PM
+    3. Project Review - Friday at 3:00 PM
+    ```
+  </Accordion>
+
+  <Accordion title="Update an event">
+    ```
+    You: Move my meeting with John to 3pm
+    
+    Assistant: I've updated "Meeting with John" to 3:00 PM on Tuesday, March 11, 2026.
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Email Operations
+
+<AccordionGroup>
+  <Accordion title="Summarize recent emails">
+    ```
+    You: Summarize my emails from this week
+    
+    Assistant: You have 12 emails from this week:
+    - 5 from your team regarding the project launch
+    - 3 newsletter subscriptions
+    - 2 customer support inquiries
+    - 2 meeting invitations
+    ```
+  </Accordion>
+
+  <Accordion title="Search for specific emails">
+    ```
+    You: Find emails from Sarah about the budget
+    
+    Assistant: I found 2 emails from Sarah about the budget:
+    1. "Q1 Budget Review" - March 5, 2026
+    2. "Budget Approval Request" - March 7, 2026
+    ```
+  </Accordion>
+
+  <Accordion title="Send an email">
+    ```
+    You: Send an email to team@example.com with subject "Status Update" and say the project is on track
+    
+    Assistant: I've sent the email to team@example.com with subject "Status Update".
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Task Management
+
+<AccordionGroup>
+  <Accordion title="Create a task">
+    ```
+    You: Create a task: buy groceries
+    
+    Assistant: I've created a new task "buy groceries" in your default task list.
+    ```
+  </Accordion>
+
+  <Accordion title="List tasks">
+    ```
+    You: What tasks do I have?
+    
+    Assistant: You have 4 incomplete tasks:
+    1. Buy groceries
+    2. Review pull requests
+    3. Prepare presentation
+    4. Call dentist
+    ```
+  </Accordion>
+
+  <Accordion title="Complete a task">
+    ```
+    You: Mark "buy groceries" as done
+    
+    Assistant: I've marked "buy groceries" as completed.
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Multi-turn Conversations
+
+The agent maintains conversation context and can ask clarifying questions:
+
+```
+You: Schedule a meeting with the team
+
+Assistant: I'd be happy to help schedule a meeting. Could you provide:
+1. What date and time would you like?
+2. How long should the meeting be?
+3. What's the meeting topic?
+
+You: Tomorrow at 10am for 1 hour about the project launch
+
+Assistant: I've created a 1-hour meeting "Project Launch" for tomorrow at 10:00 AM with the team.
+```
+
+## Special Commands
+
+<CardGroup cols={2}>
+  <Card title="Help" icon="question">
+    Type `help` to see available tools and their descriptions
+    ```
+    You: help
+    ```
+  </Card>
+
+  <Card title="Exit" icon="door-open">
+    Type `exit`, `quit`, or `q` to close the CLI
+    ```
+    You: exit
+    Goodbye!
+    ```
+  </Card>
+</CardGroup>
+
+## Error Handling
+
+The CLI gracefully handles errors and continues running:
+
+```
+You: Schedule a meeting for tomorrow at invalid-time
+
+Error: Could not parse the time "invalid-time". Please use a format like "2pm" or "14:00".
+
+You: 
+```
+
+<Tip>
+  Press `Ctrl+C` at any time to gracefully exit the CLI.
+</Tip>
+
+## Configuration
+
+The graph runner is initialized with these default settings:
+
+```python
+graph, tools_registry = create_graph_runner(
+    calendar_service=calendar_service,
+    gmail_service=gmail_service,
+    tasks_service=tasks_service,
+    model_name="qwen-plus-2025-12-01",
+    default_timezone="UTC"
+)
+```
+
+You can customize the `model_name` and `default_timezone` parameters in `main.py` to match your preferences.

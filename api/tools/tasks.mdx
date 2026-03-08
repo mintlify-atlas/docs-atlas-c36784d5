@@ -1,0 +1,419 @@
+---
+title: 'Tasks Tools'
+description: 'Google Tasks integration tools for managing todo items and task lists'
+---
+
+The Tasks tools provide comprehensive access to Google Tasks functionality, allowing the agent to create, read, update, delete, and manage tasks and task lists.
+
+## create_task
+
+Create a new task/todo item with optional due date.
+
+### Parameters
+
+<ParamField path="title" type="string" required>
+  The title of the task
+</ParamField>
+
+<ParamField path="due" type="string">
+  Due date. Supports flexible formats:
+  - Natural language: `"tomorrow"`, `"next Friday"`
+  - ISO 8601: `"2026-01-25"`
+</ParamField>
+
+<ParamField path="notes" type="string" default="">
+  Additional notes for the task
+</ParamField>
+
+<ParamField path="tasklist" type="string">
+  Task list ID. If not provided, uses default list
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="task_id" type="string">
+  The unique ID of the created task
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+<ResponseField name="task" type="object">
+  Created task object with `id`, `title`, `status`, `due`, and `notes` fields
+</ResponseField>
+
+### Example
+
+```python
+# Create a simple task
+result = await agent.create_task(
+    title="Review pull request #42"
+)
+
+# Create a task with due date and notes
+result = await agent.create_task(
+    title="Prepare presentation",
+    due="next Monday",
+    notes="Include Q1 metrics and roadmap"
+)
+```
+
+---
+
+## list_tasks
+
+List tasks from a task list. Shows incomplete tasks by default.
+
+### Parameters
+
+<ParamField path="tasklist" type="string">
+  Task list ID. If not provided, uses default list
+</ParamField>
+
+<ParamField path="show_completed" type="boolean" default={false}>
+  Include completed tasks in results
+</ParamField>
+
+<ParamField path="max_results" type="integer" default={20}>
+  Maximum number of tasks to return (1-100)
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary message
+</ResponseField>
+
+<ResponseField name="tasks" type="list[object]">
+  List of tasks with:
+  - `id` (string): Task ID
+  - `title` (string): Task title
+  - `status` (string): `"needsAction"` or `"completed"`
+  - `due` (string): Due date (if set)
+  - `notes` (string): Task notes
+  - `updated` (string): Last update timestamp
+</ResponseField>
+
+<ResponseField name="list_id" type="string">
+  The task list ID used
+</ResponseField>
+
+### Example
+
+```python
+# List incomplete tasks
+result = await agent.list_tasks()
+
+# List all tasks including completed
+result = await agent.list_tasks(
+    show_completed=True,
+    max_results=50
+)
+```
+
+---
+
+## mark_task_complete
+
+Mark a task as completed/done.
+
+### Parameters
+
+<ParamField path="task_id" type="string" required>
+  The unique ID of the task to mark complete
+</ParamField>
+
+<ParamField path="tasklist" type="string">
+  Task list ID. If not provided, uses default list
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+<ResponseField name="task" type="object">
+  Updated task object with `id`, `title`, and `status` fields
+</ResponseField>
+
+### Example
+
+```python
+# Mark a task as complete
+result = await agent.mark_task_complete(
+    task_id="abc123xyz"
+)
+```
+
+---
+
+## mark_task_incomplete
+
+Mark a task as incomplete/not done. Use this to reopen a completed task.
+
+### Parameters
+
+<ParamField path="task_id" type="string" required>
+  The unique ID of the task to mark incomplete
+</ParamField>
+
+<ParamField path="tasklist" type="string">
+  Task list ID. If not provided, uses default list
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+<ResponseField name="task" type="object">
+  Updated task object with `id`, `title`, and `status` fields
+</ResponseField>
+
+### Example
+
+```python
+# Reopen a completed task
+result = await agent.mark_task_incomplete(
+    task_id="abc123xyz"
+)
+```
+
+---
+
+## delete_task
+
+Delete a task by its ID. Always confirm with the user before deleting.
+
+### Parameters
+
+<ParamField path="task_id" type="string" required>
+  The unique ID of the task to delete
+</ParamField>
+
+<ParamField path="tasklist" type="string">
+  Task list ID. If not provided, uses default list
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+### Example
+
+```python
+result = await agent.delete_task(
+    task_id="abc123xyz"
+)
+```
+
+---
+
+## update_task
+
+Update a task's title, due date, or notes.
+
+### Parameters
+
+<ParamField path="task_id" type="string" required>
+  The unique ID of the task to update
+</ParamField>
+
+<ParamField path="tasklist" type="string">
+  Task list ID. If not provided, uses default list
+</ParamField>
+
+<ParamField path="title" type="string">
+  New task title
+</ParamField>
+
+<ParamField path="due" type="string">
+  New due date
+</ParamField>
+
+<ParamField path="notes" type="string">
+  New notes
+</ParamField>
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message
+</ResponseField>
+
+<ResponseField name="task" type="object">
+  Updated task object with `id`, `title`, `status`, `due`, and `notes` fields
+</ResponseField>
+
+### Example
+
+```python
+# Update task title
+result = await agent.update_task(
+    task_id="abc123xyz",
+    title="Review and approve PR #42"
+)
+
+# Reschedule task
+result = await agent.update_task(
+    task_id="abc123xyz",
+    due="next Friday"
+)
+
+# Update multiple fields
+result = await agent.update_task(
+    task_id="abc123xyz",
+    title="Complete quarterly report",
+    due="end of month",
+    notes="Include all department metrics"
+)
+```
+
+---
+
+## get_task_lists
+
+Get all available task lists. Use this to find task list IDs.
+
+### Parameters
+
+No parameters required.
+
+### Returns
+
+<ResponseField name="success" type="boolean">
+  Whether the operation succeeded
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary message
+</ResponseField>
+
+<ResponseField name="lists" type="list[object]">
+  List of task lists with:
+  - `id` (string): Task list ID
+  - `title` (string): Task list title
+  - `updated` (string): Last update timestamp
+</ResponseField>
+
+### Example
+
+```python
+# Get all task lists
+result = await agent.get_task_lists()
+
+for task_list in result["lists"]:
+    print(f"{task_list['title']}: {task_list['id']}")
+
+# Use task list ID in other operations
+work_list_id = result["lists"][1]["id"]
+result = await agent.create_task(
+    title="Review code",
+    tasklist=work_list_id
+)
+```
+
+---
+
+## Implementation Details
+
+All Tasks tools interact with the Google Tasks API through the `TasksService` class located in `services/tasks.py:11-504`. The service:
+
+- Automatically uses the default task list if none specified
+- Caches the default task list ID for efficiency
+- Supports both incomplete and completed task filtering
+- Handles RFC 3339 datetime formatting for due dates
+- Provides detailed error messages for debugging
+
+### Task Status
+
+Tasks have two possible status values:
+- `"needsAction"` - Task is incomplete/active
+- `"completed"` - Task is completed
+
+### Default Task List
+
+The service automatically retrieves and caches the default task list ID (`services/tasks.py:19-37`):
+
+```python
+def _get_default_list_id(self) -> Optional[str]:
+    """Get the default task list ID (cached)."""
+    if self._default_list_id:
+        return self._default_list_id
+    
+    try:
+        lists = self.service.tasklists().list().execute()
+        items = lists.get("items", [])
+        if items:
+            self._default_list_id = items[0]["id"]
+            return self._default_list_id
+    except Exception:
+        pass
+    return None
+```
+
+### Common Response Pattern
+
+All Tasks tools return a dictionary with:
+
+```python
+{
+  "success": bool,      # Operation success status
+  "message": str,       # Human-readable message
+  "error": str,         # Error details (if failed)
+  # Additional fields specific to each tool
+}
+```
+
+### Best Practices
+
+1. **Use default list**: Omit `tasklist` parameter to use the user's default list
+2. **Get task lists first**: Use `get_task_lists()` to find specific list IDs if needed
+3. **Filter completed tasks**: Set `show_completed=False` (default) to focus on active tasks
+4. **Confirm destructive operations**: Always confirm with the user before calling `delete_task`
+5. **Natural language dates**: The agent can parse natural language due dates for better UX
+6. **Task workflow**: List → Mark Complete → Update → Delete (typical task lifecycle)
+
+### Working with Multiple Lists
+
+```python
+# Get all task lists
+lists = await agent.get_task_lists()
+
+# Create tasks in different lists
+for task_list in lists["lists"]:
+    if "Work" in task_list["title"]:
+        await agent.create_task(
+            title="Team meeting",
+            tasklist=task_list["id"]
+        )
+```

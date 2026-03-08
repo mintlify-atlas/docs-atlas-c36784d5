@@ -1,0 +1,550 @@
+---
+title: "Tools System"
+description: "How tools are registered, validated, and executed in AgenticPal"
+---
+
+AgenticPal uses a sophisticated tools system that combines Pydantic validation, meta-tools for lazy loading, and a centralized registry for tool management.
+
+## Tool Architecture
+
+The tools system has three main components:
+
+1. **Tool Definitions**: Metadata and schemas for all available tools
+2. **Tool Registry**: Runtime registry that maps tool names to implementations
+3. **Meta-Tools**: Dynamic tool discovery and invocation
+
+## Tool Definitions
+
+Every tool is defined using the `ToolDefinition` dataclass:
+
+<CodeGroup>
+
+```python agent/tools/tool_definitions.py
+@dataclass
+class ToolDefinition:
+    name: str                    # Unique tool identifier
+    summary: str                 # Short description (~15 tokens) for discovery
+    description: str             # Full description for LLM tool binding
+    category: str                # "calendar", "gmail", "tasks"
+    actions: List[str]           # ["search", "create", "delete", etc.]
+    is_write: bool              # Requires confirmation for destructive ops
+    schema: Type[BaseModel]      # Pydantic model for parameters
+    method_name: str             # Method name on AgentTools class
+```
+
+</CodeGroup>
+
+Example tool definition:
+
+<CodeGroup>
+
+```python agent/tools/tool_definitions.py
+TOOL_DEFINITIONS = {
+    "add_calendar_event": ToolDefinition(
+        name="add_calendar_event",
+        summary="Create a new calendar event with title, time, and optional attendees",
+        description="Add a new event to the user's Google Calendar. Use this when the user wants to schedule a meeting, appointment, or any calendar event.",
+        category="calendar",
+        actions=["create", "write"],
+        is_write=True,
+        schema=schemas.AddCalendarEventParams,
+    ),
+    "delete_calendar_event": ToolDefinition(
+        name="delete_calendar_event",
+        summary="Delete a calendar event by its ID",
+        description="Delete an event from the user's Google Calendar by its event ID. Always confirm with the user before deleting.",
+        category="calendar",
+        actions=["delete", "write"],
+        is_write=True,
+        schema=schemas.DeleteCalendarEventParams,
+    ),
+    # ... more tools
+}
+```
+
+</CodeGroup>
+
+### Category Index
+
+Tools are automatically indexed by category and action at import time:
+
+```python
+# Category index: category -> [tool_names]
+BY_CATEGORY: Dict[str, List[str]] = {}
+for name, defn in TOOL_DEFINITIONS.items():
+    BY_CATEGORY.setdefault(defn.category, []).append(name)
+
+# Action index: action -> [tool_names]
+BY_ACTION: Dict[str, List[str]] = {}
+for name, defn in TOOL_DEFINITIONS.items():
+    for action in defn.actions:
+        BY_ACTION.setdefault(action, []).append(name)
+```
+
+This enables fast lookups like:
+- "Give me all calendar tools" → `BY_CATEGORY["calendar"]`
+- "What tools can delete?" → `BY_ACTION["delete"]`
+
+## Tool Registry
+
+The `AgentTools` class implements the tool registry:
+
+<CodeGroup>
+
+```python agent/tools/registry.py
+class AgentTools:
+    """Collection of tool wrapper functions for the agent."""
+    
+    def __init__(self, calendar_service, gmail_service, tasks_service, default_timezone="UTC"):
+        self.calendar = calendar_service
+        self.gmail = gmail_service
+        self.tasks = tasks_service
+        self.default_timezone = default_timezone
+        
+        # Build tool registry from definitions
+        self._tool_registry = self._build_tool_registry()
+    
+    def _build_tool_registry(self) -> dict[str, dict]:
+        """Build registry mapping tool names to functions and schemas."""
+        registry = {}
+        
+        for name, defn in TOOL_DEFINITIONS.items():
+            # Get the method from this instance
+            method = getattr(self, defn.method_name, None)
+            if method is None:
+                raise AttributeError(f"Tool '{name}' references method '{defn.method_name}' which does not exist")
+            
+            registry[name] = {
+                "function": method,
+                "model": defn.schema,
+                "description": defn.description,
+            }
+        
+        return registry
+```
+
+</CodeGroup>
+
+### Tool Execution
+
+The registry provides a standardized execution interface:
+
+<CodeGroup>
+
+```python agent/tools/registry.py
+def execute_tool(self, name: str, arguments: dict) -> dict:
+    """Execute a tool by name with given arguments."""
+    tool = self._tool_registry.get(name)
+    if not tool:
+        return {
+            "success": False,
+            "message": f"Unknown tool: {name}",
+            "error": f"Tool '{name}' not found in registry",
+        }
+    
+    try:
+        # Validate arguments with Pydantic model
+        model = tool["model"]
+        validated_params = model(**arguments)
+        
+        # Execute the function
+        func = tool["function"]
+        result = func(**validated_params.model_dump())
+        return result
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error executing {name}: {str(e)}",
+            "error": str(e),
+        }
+```
+
+</CodeGroup>
+
+<Info>
+Pydantic validation happens **before** execution, ensuring type safety and catching errors early.
+</Info>
+
+## Pydantic Schemas
+
+Each tool has a Pydantic model defining its parameters:
+
+<CodeGroup>
+
+```python agent/schemas.py
+class AddCalendarEventParams(BaseModel):
+    """Parameters for adding a calendar event."""
+    title: str = Field(..., description="Event title")
+    start_time: str = Field(..., description="Start time (natural language or ISO format)")
+    end_time: Optional[str] = Field(None, description="End time (defaults to start_time + 1 hour)")
+    duration: Optional[str] = Field(None, description="Duration like '2 hours' or '30 minutes'")
+    description: str = Field("", description="Event description")
+    attendees: Optional[List[str]] = Field(None, description="List of attendee email addresses")
+    timezone: str = Field("UTC", description="Timezone (e.g., 'America/New_York')")
+
+class DeleteCalendarEventParams(BaseModel):
+    """Parameters for deleting a calendar event."""
+    event_id: str = Field(..., description="Calendar event ID")
+```
+
+</CodeGroup>
+
+Benefits:
+- **Type safety**: Parameters are validated at runtime
+- **Auto-documentation**: Field descriptions become tool documentation
+- **IDE support**: Type hints enable autocomplete
+- **Error messages**: Pydantic provides clear validation errors
+
+## Meta-Tools Pattern
+
+Meta-tools enable **lazy tool loading** - the agent discovers and loads tool schemas only when needed.
+
+### Why Meta-Tools?
+
+Traditional approach (loading all tools):
+```python
+# Load all 15+ tool schemas into LLM context
+tools = registry.get_langchain_tools()  # ≈6000 tokens
+llm_with_tools = llm.bind_tools(tools)
+```
+
+Meta-tools approach:
+```python
+# Load only 3 meta-tool schemas
+meta_tools = MetaTools(registry)
+tools = meta_tools.get_langchain_tools()  # ≈550 tokens (96% reduction!)
+llm_with_tools = llm.bind_tools(tools)
+```
+
+### The Three Meta-Tools
+
+<AccordionGroup>
+  <Accordion title="discover_tools" icon="magnifying-glass">
+    Find available tools by category, action, or keyword.
+    
+    **Parameters**:
+    - `categories`: Filter by category (calendar, gmail, tasks)
+    - `actions`: Filter by action (search, create, update, delete, list, read)
+    - `query`: Keyword search in tool names and summaries
+    
+    **Returns**: List of tools with lightweight metadata (~15 tokens each)
+    
+    ```python
+    result = meta_tools.discover_tools(
+        categories=["calendar"],
+        actions=["create"]
+    )
+    # Returns:
+    {
+        "tools": [
+            {
+                "name": "add_calendar_event",
+                "summary": "Create a new calendar event with title, time, and optional attendees",
+                "category": "calendar",
+                "actions": ["create", "write"],
+                "is_write": True
+            }
+        ]
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="get_tool_schema" icon="file-code">
+    Get the complete parameter schema for a specific tool.
+    
+    **Parameters**:
+    - `tool_name`: The exact tool name from discover_tools results
+    
+    **Returns**: Full tool definition with all parameters (~400 tokens)
+    
+    ```python
+    result = meta_tools.get_tool_schema("add_calendar_event")
+    # Returns:
+    {
+        "name": "add_calendar_event",
+        "description": "Add a new event to the user's Google Calendar...",
+        "parameters": {
+            "title": {"type": "string", "description": "Event title"},
+            "start_time": {"type": "string", "description": "Start time..."},
+            # ... more parameters
+        },
+        "required": ["title", "start_time"],
+        "is_write": True
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="invoke_tool" icon="play">
+    Execute a tool with the given parameters.
+    
+    **Parameters**:
+    - `tool_name`: The tool to execute
+    - `parameters`: Parameters matching the tool's schema
+    
+    **Returns**: Tool execution result or confirmation request
+    
+    ```python
+    result = meta_tools.invoke_tool(
+        tool_name="add_calendar_event",
+        parameters={
+            "title": "Meeting with John",
+            "start_time": "tomorrow 2pm",
+            "timezone": "UTC"
+        }
+    )
+    # Returns:
+    {
+        "success": True,
+        "message": "Event created",
+        "data": {"event_id": "abc123", ...}
+    }
+    ```
+    
+    For destructive operations:
+    ```python
+    result = meta_tools.invoke_tool(
+        tool_name="delete_calendar_event",
+        parameters={"event_id": "abc123"}
+    )
+    # Returns:
+    {
+        "status": "pending_confirmation",
+        "tool_name": "delete_calendar_event",
+        "parameters": {"event_id": "abc123"},
+        "message": "This action requires user confirmation before execution"
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Meta-Tools Implementation
+
+<CodeGroup>
+
+```python agent/tools/meta_tools.py
+class MetaTools:
+    """Meta-tools for lazy tool loading."""
+    
+    def __init__(self, tool_registry):
+        self.tool_registry = tool_registry
+        self._pending_confirmation = None
+    
+    def discover_tools(self, categories=None, actions=None, query=None) -> Dict[str, Any]:
+        """Find available tools by category and/or action type."""
+        return _discover_tools(categories=categories, actions=actions, query=query)
+    
+    def get_tool_schema(self, tool_name: str) -> Dict[str, Any]:
+        """Get the complete parameter schema for a specific tool."""
+        registry = self.tool_registry.get_tool_registry()
+        tool_info = registry.get(tool_name)
+        
+        if not tool_info:
+            return {"error": f"Unknown tool: {tool_name}"}
+        
+        # Get schema from Pydantic model
+        model = tool_info["model"]
+        schema = model.model_json_schema()
+        
+        return {
+            "name": tool_name,
+            "description": tool_info["description"],
+            "parameters": schema.get("properties", {}),
+            "required": schema.get("required", []),
+        }
+    
+    def invoke_tool(self, tool_name: str, parameters=None) -> Dict[str, Any]:
+        """Execute a tool with the given parameters."""
+        if parameters is None:
+            parameters = {}
+        
+        # Check if this is a destructive operation
+        meta = TOOL_INDEX.get(tool_name)
+        if meta and meta.is_write and "delete" in meta.actions:
+            # Return confirmation request instead of executing
+            return {
+                "status": "pending_confirmation",
+                "tool_name": tool_name,
+                "parameters": parameters,
+                "message": "This action requires user confirmation before execution",
+            }
+        
+        # Execute the tool
+        return self.tool_registry.execute_tool(tool_name, parameters)
+```
+
+</CodeGroup>
+
+## LLM Workflow with Meta-Tools
+
+Here's how the LLM uses meta-tools to fulfill a request:
+
+<Steps>
+  <Step title="User Request">
+    User: "What meetings do I have tomorrow?"
+  </Step>
+  
+  <Step title="Discover Tools">
+    LLM calls:
+    ```python
+    discover_tools(categories=["calendar"], actions=["list", "search"])
+    ```
+    
+    Finds: `list_calendar_events`, `search_calendar_events`
+  </Step>
+  
+  <Step title="Get Schema (Optional)">
+    For simple tools, skip this step. For complex tools:
+    ```python
+    get_tool_schema("list_calendar_events")
+    ```
+  </Step>
+  
+  <Step title="Invoke Tool">
+    ```python
+    invoke_tool(
+        "list_calendar_events",
+        {"time_min": "tomorrow", "time_max": "tomorrow end of day"}
+    )
+    ```
+  </Step>
+  
+  <Step title="Synthesize Response">
+    LLM uses the tool results to create a natural language response
+  </Step>
+</Steps>
+
+## Tool Wrapper Pattern
+
+Tool methods in `AgentTools` wrap service methods and add:
+
+1. **Date/time parsing**: Convert natural language to ISO format
+2. **Default values**: Fill in common parameters
+3. **Error handling**: Standardized error responses
+
+<CodeGroup>
+
+```python agent/tools/registry.py
+def add_calendar_event(
+    self,
+    title: str,
+    start_time: str,
+    end_time: Optional[str] = None,
+    duration: Optional[str] = None,
+    description: str = "",
+    attendees: Optional[list[str]] = None,
+    timezone: str = "UTC",
+) -> dict:
+    """Add a new event to the calendar with parsed times."""
+    try:
+        # Parse natural language dates
+        parsed_start, is_all_day = parse_datetime(start_time, timezone)
+        
+        if is_all_day:
+            return self.calendar.add_event(
+                title=title,
+                start_time=parsed_start + "T00:00:00",
+                end_time=parsed_start + "T23:59:59",
+                description=description,
+                attendees=attendees,
+                timezone=timezone,
+            )
+        
+        # Handle end_time or duration
+        if end_time:
+            parsed_end, _ = parse_datetime(end_time, timezone)
+        elif duration:
+            parsed_end = calculate_end_time(parsed_start, duration)
+        else:
+            parsed_end = calculate_end_time(parsed_start, "1 hour")
+        
+        # Call service layer
+        return self.calendar.add_event(
+            title=title,
+            start_time=parsed_start,
+            end_time=parsed_end,
+            description=description,
+            attendees=attendees,
+            timezone=timezone,
+        )
+    
+    except ValueError as e:
+        return {
+            "success": False,
+            "message": f"Invalid date/time: {e}",
+            "error": str(e),
+        }
+```
+
+</CodeGroup>
+
+<Tip>
+Tool wrappers handle parsing and validation so service methods can focus on API calls.
+</Tip>
+
+## Adding New Tools
+
+To add a new tool, follow these steps:
+
+<Steps>
+  <Step title="Create Pydantic Schema">
+    ```python agent/schemas.py
+    class SendEmailParams(BaseModel):
+        """Parameters for sending an email."""
+        to: List[str] = Field(..., description="Recipient email addresses")
+        subject: str = Field(..., description="Email subject")
+        body: str = Field(..., description="Email body (plain text or HTML)")
+        cc: Optional[List[str]] = Field(None, description="CC recipients")
+    ```
+  </Step>
+  
+  <Step title="Add Tool Definition">
+    ```python agent/tools/tool_definitions.py
+    TOOL_DEFINITIONS["send_email"] = ToolDefinition(
+        name="send_email",
+        summary="Send an email to one or more recipients",
+        description="Send an email using Gmail. Can include CC recipients and HTML formatting.",
+        category="gmail",
+        actions=["create", "write"],
+        is_write=True,
+        schema=schemas.SendEmailParams,
+    )
+    ```
+  </Step>
+  
+  <Step title="Implement Wrapper Method">
+    ```python agent/tools/registry.py
+    class AgentTools:
+        def send_email(self, to: List[str], subject: str, body: str, cc: Optional[List[str]] = None) -> dict:
+            """Send an email."""
+            return self.gmail.send_message(to=to, subject=subject, body=body, cc=cc)
+    ```
+  </Step>
+  
+  <Step title="Add Service Method (if needed)">
+    ```python services/gmail_service.py
+    class GmailService:
+        def send_message(self, to: List[str], subject: str, body: str, cc: Optional[List[str]] = None) -> dict:
+            """Send an email via Gmail API."""
+            # Implementation
+            pass
+    ```
+  </Step>
+</Steps>
+
+That's it! The tool is now automatically:
+- Discoverable via `discover_tools(categories=["gmail"], actions=["create"])`
+- Validated using the Pydantic schema
+- Executable via `invoke_tool("send_email", {...})`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Flow" icon="diagram-project" href="/concepts/agent-flow">
+    See complete examples of how tools are used in agent execution
+  </Card>
+  
+  <Card title="Architecture" icon="layer-group" href="/concepts/architecture">
+    Understand how tools fit into the overall system architecture
+  </Card>
+</CardGroup>
